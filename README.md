@@ -1,131 +1,108 @@
 # PayAI 🤖💳
 
-Sistema inteligente de acessibilidade para leitura de valores e QR Codes em maquininhas de cartão, desenvolvido em Python.
+Sistema inteligente de acessibilidade para leitura de valores e QR Codes em maquininhas de cartão.
 
-O PayAI utiliza visão computacional, OCR e síntese de voz para auxiliar pessoas com deficiência visual durante pagamentos digitais.
-
----
-
-## ✨ Funcionalidades
-
-- 💰 Reconhecimento automático de valores monetários
-- 🔍 Detecção de QR Codes em tempo real
-- 🔊 Feedback por voz instantâneo
-- 🌎 Suporte multilíngue
-  - Português (PT-BR)
-  - Espanhol (ES-CO)
-- 🎥 Processamento em tempo real via câmera
-- 🧠 Sistema inteligente anti-repetição
-- 📊 Estatísticas de detecção
-- 🖼️ Interface moderna e acessível
-- 📸 Captura de screenshots
-- ♻️ Gerenciamento automático de memória
+O projeto principal está num único arquivo: [PayAI.py](PayAI.py). Ele usa visão computacional, OCR e síntese de voz para fornecer feedback sonoro sobre valores e QR Codes detectados pela câmera.
 
 ---
 
-## 🛠️ Tecnologias Utilizadas
+## ✨ Principais funcionalidades
+
+- Reconhecimento automático de valores monetários na tela da maquininha
+- Detecção de QR Codes em tempo real
+- Feedback por voz (suporte a múltiplos backends)
+- Suporte a Português (PT-BR) e Espanhol (ES-CO)
+- Antirrepetição inteligente e histórico curto para evitar leituras duplicadas
+- Estatísticas em tempo real e overlay na imagem
+- Captura de screenshots
+
+---
+
+## 🛠 Tecnologias
 
 - Python
 - OpenCV
 - EasyOCR
-- PyTTSx3
 - Pillow (PIL)
 - NumPy
-- Threading
+- pyttsx3 / edge-tts (síntese de voz)
+- pygame (reprodução de áudio)
 
 ---
 
 ## 📦 Instalação
 
-Clone o repositório:
+1. Crie e ative um ambiente virtual:
 
-```bash
-git clone https://github.com/beernardofrigeri/fenecit.git
-cd fenecit
+Windows:
+
+```powershell
+python -m venv .venv
+.venv\Scripts\Activate.ps1  # ou .venv\Scripts\activate
 ```
 
-Crie o ambiente virtual:
+Linux/macOS:
 
 ```bash
 python -m venv .venv
-```
-
-Ative o ambiente virtual:
-
-### Windows
-
-```bash
-.venv\Scripts\activate
-```
-
-### Linux/macOS
-
-```bash
 source .venv/bin/activate
 ```
 
-Instale as dependências:
+2. Instale as dependências:
 
 ```bash
 pip install -r requirements.txt
 ```
 
-Execute o sistema:
+> Se preferir, verifique `requirements.txt` para versões específicas.
+
+---
+
+## ▶️ Uso
+
+Execute diretamente o arquivo principal:
 
 ```bash
-python main.py
+python PayAI.py
 ```
 
----
-
-## ⌨️ Atalhos do Sistema
-
-| Tecla | Função |
-|------|------|
-| `A` | Modo automático |
-| `V` | Modo leitura de valores |
-| `Q` | Modo QR Code |
-| `I` | Alternar idioma |
-| `R` | Repetir última leitura |
-| `S` | Salvar screenshot |
-| `ESC` | Encerrar sistema |
+Observações:
+- No Windows, o script tenta carregar fontes em `C:/Windows/Fonts/` (Segoe UI). Se não encontradas, usa a fonte padrão do PIL.
+- O programa acessa a câmera; garanta permissão de uso e conexão de dispositivo.
 
 ---
 
-## 📁 Estrutura do Projeto
+## ⌨️ Atalhos (em tempo de execução)
+
+- `A` — Modo Automático (valores + QR)
+- `V` — Modo Leitura de Valores
+- `Q` — Modo QR Code
+- `I` — Alternar idioma (PT-BR / ES-CO)
+- `R` — Repetir última leitura
+- `S` — Salvar screenshot
+- `ESC` — Sair
+
+---
+
+## 📁 Estrutura do repositório
 
 ```text
-fenecit/
-│
-├── main.py
-├── requirements.txt
+.
+├── PayAI.py
 ├── README.md
-├── .gitignore
-├── config.json
-│
-├── payai/
-│   ├── __init__.py
-│   ├── camera.py
-│   ├── config.py
-│   ├── draw.py
-│   ├── logger.py
-│   ├── ocr.py
-│   ├── speech.py
-│   └── utils.py
-│
-├── logs/
-├── screenshots/
-└── .venv/
+└── requirements.txt
 ```
 
 ---
 
-## 🎯 Objetivo
+## Notas e dicas
 
-O projeto foi desenvolvido com foco em acessibilidade e inclusão digital, buscando facilitar o uso de maquininhas de pagamento para pessoas com deficiência visual.
+- O processamento OCR pode usar GPU se o `easyocr.Reader` for inicializado com `gpu=True` e houver suporte.
+- Se houver problemas com o backend de áudio, experimente instalar apenas `pyttsx3` ou `edge-tts` conforme sua preferência.
+- Logs são gravados em `payai.log` no diretório de execução.
 
 ---
 
-## 👨‍💻 Autor
+## Autor
 
-Desenvolvido por Bernardo Girardi Frigeri 🚀
+Bernardo Girardi Frigeri
