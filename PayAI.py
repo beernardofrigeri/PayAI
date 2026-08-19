@@ -24,6 +24,9 @@ OCR_CONFIANCA_MINIMA = 0.55
 CONTORNO_TEMPO_VIDA = 0.8
 OCR_QUEUE_SIZE = 1
 VALOR_HISTORY_BUFFER = 5
+# Raspberry Pi normalmente não possui GPU compatível com o EasyOCR. Para usar
+# uma GPU compatível em outro equipamento, execute com PAYAI_USAR_GPU=1.
+OCR_USAR_GPU = os.environ.get('PAYAI_USAR_GPU', '0') == '1'
 
 MODOS = {
     'AUTO': 0,
@@ -56,7 +59,7 @@ logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(levelname)s - %(message)s',
     handlers=[
-        logging.FileHandler('payai.log'),
+        logging.FileHandler('payai.log', encoding='utf-8'),
         logging.StreamHandler()
     ]
 )
@@ -157,7 +160,8 @@ valor_history        = []
 fala_deteccao_tipo    = None
 fala_deteccao_cancelamento = None
 ultimo_qrcode_visto   = 0.0
-QRCODE_PERDA_GRACA    = 0.6
+qrcode_anunciado      = None
+QRCODE_PERDA_GRACA    = 1.5
 
 # Estado OCR
 ocr_rodando = False
@@ -213,13 +217,13 @@ def carregar_ocr():
 
         reader = easyocr.Reader(
             ['pt', 'es'],
-            gpu=True,
+            gpu=OCR_USAR_GPU,
             download_enabled=True
         )
 
         ocr_pronto = True
 
-        logger.info("OCR carregado.")
+        logger.info("OCR carregado (%s).", "GPU" if OCR_USAR_GPU else "CPU")
 
     except Exception as e:
 
@@ -233,10 +237,10 @@ class OCRThread(threading.Thread):
         super().__init__(daemon=True)
         self.fila = fila
         self.estat = estat
-        self._stop = False
+        self._parar = threading.Event()
 
     def run(self):
-        while not self._stop:
+        while not self._parar.is_set():
             try:
                 frame = self.fila.get(timeout=0.1)
                 processar_valores(frame, self.estat)
@@ -246,7 +250,7 @@ class OCRThread(threading.Thread):
                 logger.error(f"Erro loop OCR: {e}")
 
     def stop(self):
-        self._stop = True
+        self._parar.set()
 
 
 # ── CARREGAMENTO CAMERA ───────────────────────────────────────
@@ -655,7 +659,10 @@ async def falar_edge(texto, voz="es-CO-GonzaloNeural", cancelar_evento=None):
         except pygame.error:
             pass
         if os.path.exists(caminho):
-            os.remove(caminho)
+            try:
+                os.remove(caminho)
+            except OSError as erro:
+                logger.warning(f"Não foi possível remover áudio temporário: {erro}")
 
 def falar_texto(texto, idioma=None, ultima_fala_ref=None, cancelar_evento=None):
 
@@ -750,30 +757,6 @@ def falar_texto(texto, idioma=None, ultima_fala_ref=None, cancelar_evento=None):
 
     threading.Thread(target=_falar, daemon=True).start()
 # ── FILTRO MONETARIO ──────────────────────────────────────────
-def validar_valor(val):
-    try:
-        val = val.strip()
-        p = val.split(',')
-        if len(p) != 2:
-            return False
-        i = p[0].replace('.', '').strip()
-        d = p[1].strip()
-        if len(d) != 2 or not d.isdigit() or not i.isdigit():
-            return False
-        
-        # Rejeita se o inteiro estiver vazio
-        if not i or i == '0':
-            return False
-        
-        # Rejeita se tiver apenas um dígito no inteiro (muito provável ser fragmento)
-        if len(i) == 1 and i in '123456789':
-            return False
-        
-        valor_float = float(f"{i}.{d}")
-        return 0.01 <= valor_float <= 10000
-    except Exception:
-        return False
-
 def formatar_fala(val, idioma=IDIOMAS['PT_BR']):
     p = val.strip().split(',')
     i = int(p[0].replace('.', '').strip())
@@ -790,53 +773,6 @@ def formatar_fala(val, idioma=IDIOMAS['PT_BR']):
     if i == 0:
         return f"{c} centavos"
     return f"{i} reais e {c} centavos"
-
-def _valor_numero(valor):
-    try:
-        valor_limpo = valor.replace('.', '').replace(',', '.')
-        return float(valor_limpo)
-    except Exception:
-        return -1.0
-
-
-def _valor_tem_formato_completo(valor):
-    """Verifica se o valor tem um formato que sugira ser completo, não fragmentário."""
-    # Se tem 'R$' ou 'reais', é muito provável ser completo
-    return 'R$' in valor or 'reais' in valor or len(valor) > 7
-
-
-def filtrar_valor_monetario(texto):
-    if not texto:
-        return None
-
-    # Padrões em ordem de prioridade (mais específicos primeiro)
-    padroes_prioritarios = [
-        (r'R\s*[\$\s]*\s*(\d{1,3}(?:\.\d{3})*,\d{2})', 'com_simbolo'),
-        (r'(\d{1,3}(?:\.\d{3})*,\d{2})\s*R\$?', 'com_simbolo_direita'),
-    ]
-    
-    padroes_secundarios = [
-        (r'valor\s*[:\s]+\s*(\d{1,3}(?:\.\d{3})*,\d{2})', 'com_label'),
-        (r'total\s*[:\s]+\s*(\d{1,3}(?:\.\d{3})*,\d{2})', 'com_label'),
-        (r'(\d+,\d{2})\s*(?:reais|R\$)', 'com_palavra'),
-    ]
-    
-    padroes_generico = [
-        (r'(\d{1,3}(?:\.\d{3})*,\d{2})', 'generico_completo'),
-        (r'(\d+,\d{2})', 'generico_simples'),
-    ]
-
-    # Tenta padrões prioritários primeiro
-    for padroes, categoria in [(padroes_prioritarios, 'prioritario'), 
-                                 (padroes_secundarios, 'secundario'), 
-                                 (padroes_generico, 'generico')]:
-        for pattern, pattern_type in padroes:
-            for m in re.finditer(pattern, texto, re.IGNORECASE):
-                valor = m.group(1).strip()
-                if validar_valor(valor):
-                    return valor
-
-    return None
 
 def evitar_repeticao(texto, minimo=5):
     global ultimo_tempo, texto_anterior, valor_history
@@ -859,6 +795,12 @@ def pode_detectar(texto, cooldown=8):
     """Verifica se o texto pode ser detectado novamente (com cooldown)."""
     agora = time.time()
 
+    # Evita crescimento contínuo quando aparecem muitos QR Codes diferentes.
+    expirados = [chave for chave, instante in ultimos_detectados.items()
+                 if agora - instante >= cooldown]
+    for chave in expirados:
+        del ultimos_detectados[chave]
+
     if texto in ultimos_detectados:
         if agora - ultimos_detectados[texto] < cooldown:
             return False
@@ -874,32 +816,6 @@ def atualizar_contornos():
         if item[3] in ('VALOR', 'QRCODE') or (agora - item[2]) < CONTORNO_TEMPO_VIDA
     ]
 
-def atualizar_ou_criar_contorno(tl, br, texto, tipo):
-
-    global contornos_ativos
-
-    agora = time.time()
-
-    for i, item in enumerate(contornos_ativos):
-
-        (_, _), txt, _, tp = item
-
-        if txt == texto and tp == tipo:
-
-            contornos_ativos[i] = (
-                (tl, br),
-                texto,
-                agora,
-                tipo
-            )
-
-            return
-
-    contornos_ativos.append(
-        ((tl, br), texto, agora, tipo)
-    )
-
-
 def definir_contorno_ativo(tl, br, texto, tipo):
     """Mantém somente a detecção atual de cada tipo, sem rastros antigos."""
     global contornos_ativos
@@ -913,221 +829,8 @@ def remover_contorno(tipo):
 
 
 # ── PROCESSAMENTO ─────────────────────────────────────────────
-def detectar_regioes_texto(frame):
-
-    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-
-    # melhora contraste
-    blur = cv2.GaussianBlur(gray, (3, 3), 0)
-
-    # detecta bordas
-    edges = cv2.Canny(blur, 80, 150)
-
-    # junta áreas próximas
-    kernel = cv2.getStructuringElement(
-        cv2.MORPH_RECT,
-        (5, 3)
-    )
-
-    dilatada = cv2.dilate(
-        edges,
-        kernel,
-        iterations=2
-    )
-
-    contornos, _ = cv2.findContours(
-        dilatada,
-        cv2.RETR_EXTERNAL,
-        cv2.CHAIN_APPROX_SIMPLE
-    )
-
-    regioes = []
-
-    for cnt in contornos:
-
-        x, y, w, h = cv2.boundingRect(cnt)
-
-        # ignora texto da interface no topo da janela
-        if y < 60:
-            continue
-
-        # filtros contra lixo
-        if w < 60 or h < 20:
-            continue
-
-        if w > 500 or h > 200:
-            continue
-
-        area = w * h
-
-        if area < 1500:
-            continue
-
-        roi = frame[y:y+h, x:x+w]
-
-        regioes.append((roi, (x, y, w, h)))
-
-    return regioes
-
-
-def buscar_valor_global(frame):
-    if reader is None:
-        return None
-
-    small = cv2.resize(frame, RESIZE_OCR)
-    gray = cv2.cvtColor(small, cv2.COLOR_BGR2GRAY)
-
-    deteccoes = reader.readtext(
-        gray,
-        detail=1,
-        paragraph=False,
-        batch_size=1,
-        width_ths=2.0,
-        height_ths=2.0
-    )
-
-    candidatos = []
-
-    for bbox, texto, conf in deteccoes:
-        valor = filtrar_valor_monetario(texto)
-        if not valor:
-            continue
-
-        # evita valores do cabeçalho da interface
-        y_center = sum([p[1] for p in bbox]) / len(bbox)
-        if y_center < 80:
-            continue
-
-        area = (
-            abs(bbox[2][0] - bbox[0][0]) *
-            abs(bbox[2][1] - bbox[0][1])
-        )
-
-        candidatos.append((conf, area, valor, bbox))
-
-    if not candidatos:
-        return None
-
-    candidatos.sort(key=lambda item: (item[0], item[1]), reverse=True)
-    _, _, valor, bbox = candidatos[0]
-    return valor, bbox
-
-def processar_valores(frame, estat):
-    if reader is None:
-        return
-
-    global ocr_rodando
-    global tempo_ocr
-    global regioes_detectadas
-    ocr_rodando = True
-    inicio_ocr = time.time()
-
-    try:
-        regioes = detectar_regioes_texto(frame)
-        regioes_detectadas = len(regioes)
-
-        candidatos_frame = []
-
-        for roi, (rx, ry, rw, rh) in regioes:
-            if rw <= 0 or rh <= 0:
-                continue
-
-            small = cv2.resize(roi, RESIZE_OCR)
-            gray = cv2.cvtColor(small, cv2.COLOR_BGR2GRAY)
-            gray = cv2.GaussianBlur(gray, (5, 5), 0)
-            _, gray = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
-
-            res = reader.readtext(
-                gray,
-                detail=1,
-                paragraph=False,
-                batch_size=1,
-                width_ths=2.5,
-                height_ths=2.5,
-                allowlist='0123456789R$,.reais',
-                mag_ratio=2.0,
-            )
-
-            for (bbox, texto, conf) in res:
-                if conf < OCR_CONFIANCA_MINIMA:
-                    continue
-
-                val = filtrar_valor_monetario(texto)
-                if not val:
-                    continue
-
-                sx = rw / RESIZE_OCR[0]
-                sy = rh / RESIZE_OCR[1]
-
-                tl = (
-                    int(bbox[0][0] * sx) + rx,
-                    int(bbox[0][1] * sy) + ry
-                )
-                br = (
-                    int(bbox[2][0] * sx) + rx,
-                    int(bbox[2][1] * sy) + ry
-                )
-
-                # Prioriza candidatos com formato mais completo
-                prioridade = 2 if _valor_tem_formato_completo(texto) else 1
-                candidatos_frame.append((prioridade, conf, _valor_numero(val), val, tl, br))
-
-        if candidatos_frame:
-            # Ordena por: prioridade (desc), confiança (desc), valor numérico (desc)
-            candidatos_frame.sort(key=lambda x: (x[0], x[1], x[2]), reverse=True)
-            _, _, _, val, tl, br = candidatos_frame[0]
-
-            if idioma_atual == IDIOMAS['ES_CO']:
-                texto_contorno = f"COL$ {val} pesos colombianos"
-            else:
-                texto_contorno = f"R$ {val} reais"
-
-            atualizar_ou_criar_contorno(
-                tl,
-                br,
-                texto_contorno,
-                'VALOR'
-            )
-
-            val_fala = formatar_fala(val, idioma_atual)
-
-            if evitar_repeticao(val_fala) and pode_detectar(val_fala):
-                logger.info(f"Valor: {val_fala} (conf {candidatos_frame[0][1]:.2f})")
-                estat.registrar_deteccao('VALOR')
-                falar_texto(val_fala, idioma_atual, None)
-
-    except Exception as e:
-        logger.error(f"Erro OCR: {e}")
-        estat.registrar_erro()
-
-    finally:
-        tempo_ocr = (
-            time.time() - inicio_ocr
-        ) * 1000
-        ocr_rodando = False
-
-
-def loop_ocr(estat):
-
-    while True:
-
-        try:
-
-            frame = fila_ocr.get(timeout=0.1)
-
-            processar_valores(frame, estat)
-
-        except Empty:
-
-            pass
-
-        except Exception as e:
-
-            logger.error(f"Erro loop OCR: {e}")
-        
-
 def processar_qrcode(frame, estat):
-    global ultimo_qrcode_visto
+    global ultimo_qrcode_visto, qrcode_anunciado
 
     try:
 
@@ -1140,11 +843,11 @@ def processar_qrcode(frame, estat):
         return
 
     if not data or not data.strip():
-        # A decodificação pode falhar em um ou dois frames mesmo com o QR
-        # visível. A tolerância curta evita cancelar a voz prematuramente.
+        # A decodificação pode falhar em alguns frames mesmo com o QR visível.
+        # A fala não é cancelada: o Edge-TTS pode ainda estar gerando o áudio.
         if time.time() - ultimo_qrcode_visto > QRCODE_PERDA_GRACA:
             remover_contorno('QRCODE')
-            parar_fala_deteccao('QRCODE')
+            qrcode_anunciado = None
         return
 
     ultimo_qrcode_visto = time.time()
@@ -1153,13 +856,16 @@ def processar_qrcode(frame, estat):
         pts = bbox.astype(int).reshape(-1, 2)
         tl = (int(pts[:, 0].min()), int(pts[:, 1].min()))
         br = (int(pts[:, 0].max()), int(pts[:, 1].max()))
-        txt = data[:18] + "..." if len(data) > 18 else data
-        definir_contorno_ativo(tl, br, f"QR: {txt}", 'QRCODE')
+        # O conteúdo pode incluir chave Pix ou URL de pagamento; não o exiba.
+        definir_contorno_ativo(tl, br, "QR Code detectado", 'QRCODE')
     else:
         remover_contorno('QRCODE')
 
-    if pode_detectar(data):
-        logger.info(f"QR: {data}")
+    # Anuncia somente ao encontrar um QR novo. Mantê-lo diante da câmera não
+    # reinicia a fala repetidamente; após sumir, ele poderá ser anunciado outra vez.
+    if data != qrcode_anunciado:
+        qrcode_anunciado = data
+        logger.info("QR Code detectado (%d caracteres).", len(data))
         estat.registrar_deteccao('QRCODE')
         iniciar_fala_deteccao("QR Code detectado", idioma_atual, 'QRCODE')
 
@@ -1524,7 +1230,9 @@ try:
                 splash
             )
 
-            cv2.waitKey(1)
+            if cv2.waitKey(1) & 0xFF == 27:
+                logger.info("Encerrado pelo usuario durante a inicializacao")
+                break
 
             continue
 
@@ -1575,14 +1283,17 @@ try:
             modo_atual = MODOS['VALORES']
             remover_contorno('QRCODE')
             parar_fala_deteccao('QRCODE')
+            qrcode_anunciado = None
             falar_texto("Modo valores ativado", idioma_atual, None)
         elif key in (ord('q'), ord('Q')):
             modo_atual = MODOS['QRCODE']
             remover_contorno('VALOR')
             parar_fala_deteccao('VALOR')
+            qrcode_anunciado = None
             falar_texto("Modo QR Code ativado", idioma_atual, None)
         elif key in (ord('a'), ord('A')):
             modo_atual = MODOS['AUTO']
+            qrcode_anunciado = None
             falar_texto("Modo automatico ativado", idioma_atual, None)
         elif key in (ord('i'), ord('I')):
             if idioma_atual == IDIOMAS['PT_BR']:
