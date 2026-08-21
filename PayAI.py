@@ -13,10 +13,13 @@ import pygame
 import tempfile
 from queue import Queue, Empty, Full
 
-# ── CONFIGURAÇÃO ──────────────────────────────────────────────
+# --Configurações do sistema--
+
+# --Tamanho da janela de captura:
 LARGURA = 640
 ALTURA = 480
 
+# --Configurações de OCR:
 OCR_INTERVAL = 0.35
 SKIP_FRAMES = 4
 RESIZE_OCR = (320, 240)
@@ -24,21 +27,25 @@ OCR_CONFIANCA_MINIMA = 0.55
 CONTORNO_TEMPO_VIDA = 0.8
 OCR_QUEUE_SIZE = 1
 VALOR_HISTORY_BUFFER = 5
+OCR_USAR_GPU = os.environ.get('PAYAI_USAR_GPU', '0') == '1'
+# Obs. sobre a função acima:
 # Raspberry Pi normalmente não possui GPU compatível com o EasyOCR. Para usar
 # uma GPU compatível em outro equipamento, execute com PAYAI_USAR_GPU=1.
-OCR_USAR_GPU = os.environ.get('PAYAI_USAR_GPU', '0') == '1'
 
+# --Configurações de fala:
 MODOS = {
     'AUTO': 0,
     'VALORES': 1,
     'QRCODE': 2
 }
 
+# --Idiomas suportados:
 IDIOMAS = {
     'PT_BR': 0,
     'ES_CO': 1
 }
 
+# --Cores usadas na interface:
 CORES = {
     'BRANCO':       (255, 255, 255),
     'PRETO':        (0,   0,   0),
@@ -54,7 +61,7 @@ CORES = {
     'VERDE_STATUS': (50,  200, 100),
 }
 
-# ── LOGGING ───────────────────────────────────────────────────
+# --Configuração de logging--
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(levelname)s - %(message)s',
@@ -63,17 +70,17 @@ logging.basicConfig(
         logging.StreamHandler()
     ]
 )
-
 logger = logging.getLogger('payai')
 
-# ── OCR / VOZ ─────────────────────────────────────────────────
+# -- OCR / voz do sistema --
 reader = None
 ocr_pronto = False
 
-# ── CAMERA ────────────────────────────────────────────────────
+# -- Câmera --
 cap = None
 camera_pronta = False
 
+# -- Classes e funções auxiliares --
 class Camera:
     def __init__(self, device=0, width=LARGURA, height=ALTURA, fps=30):
         self.device = device
@@ -109,51 +116,48 @@ class Camera:
         if self.cap:
             self.cap.release()
 
-
+# -- Carregamento de fontes --
 def carregar_fontes():
-    base = "C:/Windows/Fonts/"
+    base = os.path.join(os.path.dirname(__file__), "fonts")
     try:
         return {
-            'logo_pay':  ImageFont.truetype(base + "segoeuib.ttf", 20),
-            'logo_ai':   ImageFont.truetype(base + "segoeui.ttf",  20),
-            'subtitulo': ImageFont.truetype(base + "segoeui.ttf",  11),
-            'secao':     ImageFont.truetype(base + "segoeuib.ttf", 10),
-            'corpo':     ImageFont.truetype(base + "segoeui.ttf",  12),
-            'corpo_b':   ImageFont.truetype(base + "segoeuib.ttf", 12),
-            'pequena':   ImageFont.truetype(base + "segoeui.ttf",  10),
-            'badge':     ImageFont.truetype(base + "segoeuib.ttf", 11),
-            'modo':      ImageFont.truetype(base + "segoeuib.ttf", 12),
-            'contorno':  ImageFont.truetype(base + "segoeuib.ttf", 11),
-            'hotkey':    ImageFont.truetype(base + "segoeuib.ttf", 13),
-            'hotlabel':  ImageFont.truetype(base + "segoeui.ttf",  10),
+            'logo_pay':  ImageFont.truetype(os.path.join(base, "GOTHICI.TTF"), 24),
+            'logo_ai':   ImageFont.truetype(os.path.join(base, "GOTHICI.TTF"), 24),
+            'subtitulo': ImageFont.truetype(os.path.join(base, "GOTHICI.TTF"), 13),
+            'secao':     ImageFont.truetype(os.path.join(base, "GOTHICI.TTF"), 14),
+            'corpo':     ImageFont.truetype(os.path.join(base, "GOTHICI.TTF"), 14),
+            'corpo_b':   ImageFont.truetype(os.path.join(base, "GOTHICBI.TTF"), 14),
+            'pequena':   ImageFont.truetype(os.path.join(base, "GOTHICI.TTF"), 11),
+            'badge':     ImageFont.truetype(os.path.join(base, "GOTHICBI.TTF"), 13),
+            'modo':      ImageFont.truetype(os.path.join(base, "GOTHICBI.TTF"), 14),
+            'contorno':  ImageFont.truetype(os.path.join(base, "GOTHICBI.TTF"), 13),
+            'hotkey':    ImageFont.truetype(os.path.join(base, "GOTHICBI.TTF"), 15),
+            'hotlabel':  ImageFont.truetype(os.path.join(base, "GOTHICI.TTF"), 11),
         }
     except Exception as e:
-        logger.warning(f"Segoe UI nao encontrada: {e}")
+        logger.warning(f"Fontes do projeto nao encontradas: {e}")
         f = ImageFont.load_default()
         return {k: f for k in ['logo_pay','logo_ai','subtitulo','secao','corpo',
                                 'corpo_b','pequena','badge','modo','contorno',
                                 'hotkey','hotlabel']}
 
+# -- Inicialização direta das fontes --
 FONTES = carregar_fontes()
 
+# -- Variáveis globais de estado --
 progresso_loading = 0.0
-
 detector = cv2.QRCodeDetector()
-
 ultimo_tempo         = time.time()
 texto_anterior       = ""
 frame_count          = 0
 ultimo_processamento = 0
 contornos_ativos     = []
 ultimos_detectados   = {}
-
 fps_atual = 0
 ultimo_fps_tempo = time.time()
 tempo_ocr = 0
 regioes_detectadas = 0
-
 fila_ocr = Queue(maxsize=OCR_QUEUE_SIZE)
-
 fala_lock            = threading.Lock()
 ultima_fala          = ""
 valor_history        = []
@@ -163,75 +167,40 @@ ultimo_qrcode_visto   = 0.0
 qrcode_anunciado      = None
 QRCODE_PERDA_GRACA    = 1.5
 
-# Estado OCR
+# -- Estado OCR --
 ocr_rodando = False
 
+# -- Estado do padrão do sistema --
 modo_atual = MODOS['AUTO']
 idioma_atual = IDIOMAS['PT_BR']
-# CORES, MODOS e IDIOMAS já são importados de payai.config
 
-# ── FONTES ────────────────────────────────────────────────────
-# def carregar_fontes():
-#     base = "C:/Windows/Fonts/"
-#     try:
-#         return {
-#             'logo_pay':  ImageFont.truetype(base + "segoeuib.ttf", 20),
-#             'logo_ai':   ImageFont.truetype(base + "segoeui.ttf",  20),
-#             'subtitulo': ImageFont.truetype(base + "segoeui.ttf",  11),
-#             'secao':     ImageFont.truetype(base + "segoeuib.ttf", 10),
-#             'corpo':     ImageFont.truetype(base + "segoeui.ttf",  12),
-#             'corpo_b':   ImageFont.truetype(base + "segoeuib.ttf", 12),
-#             'pequena':   ImageFont.truetype(base + "segoeui.ttf",  10),
-#             'badge':     ImageFont.truetype(base + "segoeuib.ttf", 11),
-#             'modo':      ImageFont.truetype(base + "segoeuib.ttf", 12),
-#             'contorno':  ImageFont.truetype(base + "segoeuib.ttf", 11),
-#             'hotkey':    ImageFont.truetype(base + "segoeuib.ttf", 13),
-#             'hotlabel':  ImageFont.truetype(base + "segoeui.ttf",  10),
-#         }
-#     except Exception as e:
-#         logger.warning(f"Segoe UI nao encontrada: {e}")
-#         f = ImageFont.load_default()
-#         return {k: f for k in ['logo_pay','logo_ai','subtitulo','secao','corpo',
-#                                 'corpo_b','pequena','badge','modo','contorno',
-#                                 'hotkey','hotlabel']}
-
-# FONTES = carregar_fontes()
-
-# ── UTILITARIOS DE DESENHO ────────────────────────────────────
+# -- Funções utilitárias para desenhos --
 def cv2_para_pil(frame):
-    # compatibilidade com o módulo draw: converte BGR->RGB
+    # -- Compatibilidade com o módulo draw: converte BGR->RGB:
     return Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
 
 def pil_para_cv2(img):
     return cv2.cvtColor(np.array(img), cv2.COLOR_RGB2BGR)
 
-# ── CARREGAMENTO OCR ──────────────────────────────────────────
+# -- Carregamento do OCR --
 def carregar_ocr():
-
     global reader
     global ocr_pronto
-
     try:
-
         logger.info("Carregando OCR...")
-
         reader = easyocr.Reader(
             ['pt', 'es'],
             gpu=OCR_USAR_GPU,
             download_enabled=True
         )
-
         ocr_pronto = True
-
         logger.info("OCR carregado (%s).", "GPU" if OCR_USAR_GPU else "CPU")
 
     except Exception as e:
-
         logger.error(f"Erro carregando OCR: {e}")
-
         print(e)
 
-
+# -- Thread de OCR --
 class OCRThread(threading.Thread):
     def __init__(self, fila, estat):
         super().__init__(daemon=True)
@@ -252,12 +221,12 @@ class OCRThread(threading.Thread):
     def stop(self):
         self._parar.set()
 
-
-# ── CARREGAMENTO CAMERA ───────────────────────────────────────
-# A câmera será iniciada em thread para não bloquear a inicialização
+# -- Inicialização da câmera --
+# A câmera será iniciada em thread para não bloquear a inicialização:
 cap = None
 camera_pronta = False
 
+# Instancia a câmera e inicia a captura em thread separada:
 _camera = Camera()
 def _iniciar_camera():
     global cap, camera_pronta
@@ -270,6 +239,7 @@ def _iniciar_camera():
     else:
         logger.error("Erro ao acessar camera.")
 
+# -- Funções de desenho e interface --
 def rect_r(draw, x1, y1, x2, y2, r, fill=None, outline=None, width=1):
     if fill:
         draw.rounded_rectangle([x1, y1, x2, y2], radius=r, fill=fill)
@@ -280,8 +250,7 @@ def texto_c(draw, texto, cx, y, fonte, cor):
     w = fonte.getlength(texto)
     draw.text((cx - w / 2, y), texto, font=fonte, fill=cor)
 
-
-# ── CONTORNOS ─────────────────────────────────────────────────
+# -- Contornos ativos (valores e QR Codes):
 def desenhar_contornos(draw, agora):
     for (top_left, bottom_right), texto, timestamp, tipo in contornos_ativos:
         alpha = 255 if tipo in ('VALOR', 'QRCODE') else 220
@@ -289,45 +258,43 @@ def desenhar_contornos(draw, agora):
 
         draw.rectangle([top_left, bottom_right],
                        outline=(*cor, alpha), width=2)
-
         tx = top_left[0]
         ty = max(top_left[1] - 22, 44)
         bw = int(FONTES['contorno'].getlength(texto)) + 12
         rect_r(draw, tx, ty, tx + bw, ty + 18, r=3,
                fill=(*cor, min(alpha, 210)))
+        
         draw.text((tx + 6, ty + 3), texto,
                   font=FONTES['contorno'], fill=CORES['PRETO'])
 
 
-# ── INTERFACE ─────────────────────────────────────────────────
+# -- Desenho da interface principal:
 def desenhar_interface(frame, estatisticas, agora):
-
     img  = cv2_para_pil(frame)
     draw = ImageDraw.Draw(img)
     W, H = img.size
 
-    # ── HEADER ────────────────────────────────────────────────
+    # -- Header:
     draw.rectangle([0, 0, W, 42], fill=CORES['BG'])
     draw.line(
         [(0, 42), (W, 42)], 
         fill=CORES['BORDA'],
         width=1
-    ) 
+    )
 
-    # Logo
+    # -- Logo:
     lp = int(FONTES['logo_pay'].getlength("PAY"))
     draw.text((14, 11), "PAY", font=FONTES['logo_pay'], fill=CORES['ACENTO'])
     draw.text((14 + lp + 4, 11), "AI", font=FONTES['logo_ai'], fill=CORES['TEXTO_PRIM'])
 
-    # Separador vertical
+    # -- Separador vertical:
     draw.line(
         [(14 + lp + 4 + 26, 13), (14 + lp + 4 + 26, 30)],
         fill=CORES['BORDA'],
         width=1
     )
-    
 
-    # Subtitulo
+    # -- Subtitulo:
     draw.text(
         (14 + lp + 4 + 33, 14),
         "Sistema Inteligente",
@@ -335,30 +302,33 @@ def desenhar_interface(frame, estatisticas, agora):
         fill=CORES['TEXTO_SEC']
     )
 
-     # ── BADGES SUPERIORES ──────────────────────────────────
+# -- Modo e idioma --
     modos_cfg = {
         0: ("AUTO",    CORES['ACENTO']),
         1: ("VALORES", CORES['AMARELO']),
         2: ("QR CODE", CORES['AZUL']),
     }
 
+    # -- Obter rótulo e cor do modo atual --
     modo_label, cor_modo = modos_cfg.get(
         modo_atual,
         ("AUTO", CORES['ACENTO'])
     )
 
+    # -- Obter rótulo do idioma atual --
     idioma_label = (
         'PT-BR'
         if idioma_atual == IDIOMAS['PT_BR']
         else 'ES-CO'
     )
 
-    # ── BADGE MODO ─────────────────────────
+    # -- Bagde Modo --
     modo_x1 = W - 235
     modo_y1 = 8
     modo_x2 = W - 145
     modo_y2 = 32
 
+    # -- Desenhar retângulo arredondado para o modo --
     rect_r(
         draw,
         modo_x1,
@@ -371,6 +341,7 @@ def desenhar_interface(frame, estatisticas, agora):
         width=1
     )
 
+    # -- Desenhar o texto do modo centralizado --
     texto_c(
         draw,
         modo_label,
@@ -380,12 +351,13 @@ def desenhar_interface(frame, estatisticas, agora):
         cor_modo
     )
 
-    # ── BADGE IDIOMA ───────────────────────
+    # -- Bagde Idioma --
     idioma_x1 = W - 135
     idioma_y1 = 8
     idioma_x2 = W - 20
     idioma_y2 = 32
 
+    # -- Desenhar retângulo arredondado para o idioma --
     rect_r(
         draw,
         idioma_x1,
@@ -398,6 +370,7 @@ def desenhar_interface(frame, estatisticas, agora):
         width=1
     )
 
+    # -- Desenhar o texto do idioma centralizado --
     texto_c(
         draw,
         idioma_label,
@@ -407,49 +380,45 @@ def desenhar_interface(frame, estatisticas, agora):
         CORES['TEXTO_PRIM']
     )
 
-    # ── STATS ────────────────────────────────────────────────
+    # -- Estatísticas --
     if estatisticas:
-
         stats = estatisticas.obter_estatisticas()
-
         itens = [
             ("Valores",  str(stats['valores_detectados'])),
             ("QR Codes", str(stats['qrcodes_detectados'])),
             ("Taxa",     f"{stats['detectoes_por_minuto']:.1f}/min"),
-
             ("FPS",      f"{fps_atual:.1f}"),
             ("OCR",      f"{tempo_ocr:.0f}ms"),
             ("Regioes",  str(regioes_detectadas)),
         ]       
-
         sy = 50
-
         for label, valor in itens:
 
+            # Desenhar rótulo à esquerda:
             draw.text(
                 (14, sy),
                 f"{label}:",
                 font=FONTES['pequena'],
                 fill=CORES['TEXTO_SEC']
             )
-
             lw = int(FONTES['pequena'].getlength(f"{label}:")) + 6
 
+            # Desenhar valor à direita do rótulo:
             draw.text(
                 (14 + lw, sy),
                 valor,
                 font=FONTES['corpo_b'],
                 fill=CORES['TEXTO_PRIM']
             )
-
             sy += 16
 
-    # ── CONTORNOS ────────────────────────────────────────────
+    # -- Contornos ativos (valores e QR Codes) --
     desenhar_contornos(draw, agora)
 
-    # ── FOOTER ───────────────────────────────────────────────
+    # -- Footer com botões de atalho --
     footer_y = H - 72
 
+    # -- Desenhar retângulo de fundo do footer:
     draw.rectangle(
         [0, footer_y, W, H],
         fill=CORES['BG']
@@ -461,6 +430,7 @@ def desenhar_interface(frame, estatisticas, agora):
         width=1
     )
 
+    # -- Botões de atalho:
     botoes = [
         ("ESC", "SAIR"),
         ("V", "VALORES"),
@@ -471,6 +441,7 @@ def desenhar_interface(frame, estatisticas, agora):
         ("S", "PRINT")
     ]
 
+    # -- Calcular largura total dos botões e posição inicial para centralizar:
     card_w  = 72
     gap     = 4
     total_w = len(botoes) * card_w + (len(botoes) - 1) * gap
@@ -478,11 +449,13 @@ def desenhar_interface(frame, estatisticas, agora):
 
     for i, (tecla, desc) in enumerate(botoes):
 
+        # -- Calcular posição do botão:
         cx1 = bx_ini + i * (card_w + gap)
         cx2 = cx1 + card_w
         cy1 = footer_y + 8
         cy2 = H - 8
 
+        # -- Determinar se o botão está ativo (modo atual):
         ativo = (
             (tecla == "A" and modo_atual == 0) or
             (tecla == "V" and modo_atual == 1) or
@@ -504,9 +477,10 @@ def desenhar_interface(frame, estatisticas, agora):
             width=1
         )
 
-        # Tecla
+        # -- Tecla:
         tw = FONTES['hotkey'].getlength(tecla)
 
+        # -- Desenhar a tecla centralizada no botão:
         draw.text(
             (cx1 + (card_w - tw) / 2, cy1 + 5),
             tecla,
@@ -514,9 +488,10 @@ def desenhar_interface(frame, estatisticas, agora):
             fill=CORES['ACENTO'] if ativo else CORES['TEXTO_PRIM']
         )
 
-        # Label
+        # -- Label
         dw = FONTES['hotlabel'].getlength(desc)
 
+        # -- Desenhar a descrição centralizada abaixo da tecla:
         draw.text(
             (cx1 + (card_w - dw) / 2, cy2 - 17),
             desc,
@@ -524,9 +499,10 @@ def desenhar_interface(frame, estatisticas, agora):
             fill=CORES['ACENTO'] if ativo else CORES['TEXTO_SEC']
         )
 
+    # -- Retornar a imagem final como array OpenCV:
     return pil_para_cv2(img)
 
-# ── CLASSES ───────────────────────────────────────────────────
+# -- Classe para estatísticas de detecção --
 class Estatisticas:
     def __init__(self):
         self.valores_detectados = 0
@@ -554,8 +530,7 @@ class Estatisticas:
             'detectoes_por_minuto': total / (t / 60) if t > 0 else 0,
         }
 
-# ── CONVERSAO NUMERICA ────────────────────────────────────────
-
+# -- Conversão de números para texto em português --
 def _num_pt(n):
     if n == 0: 
         return "zero"
@@ -578,14 +553,20 @@ def _num_pt(n):
         return c[cent] + (" e " + _num_pt(r) if r else "")
     return f"{n:,}".replace(",", ".")
 
-# ── CONVERSAO ESPANHOL ───────────────────────────────────────
+# -- Conversão para espanhol --
 def numero_es(n):
-
-    unidades = [
-        'cero', 'uno', 'dos', 'tres', 'cuatro',
-        'cinco', 'seis', 'siete', 'ocho', 'nueve'
-    ]
-
+    unidades = {
+        0: 'cero',
+        1: 'uno',
+        2: 'dos',
+        3: 'tres',
+        4: 'cuatro',
+        5: 'cinco',
+        6: 'seis',
+        7: 'siete',
+        8: 'ocho',
+        9: 'nueve'
+    }
     especiais = {
         10: 'diez',
         11: 'once',
@@ -594,7 +575,6 @@ def numero_es(n):
         14: 'catorce',
         15: 'quince'
     }
-
     dezenas = {
         20: 'veinte',
         30: 'treinta',
@@ -605,49 +585,37 @@ def numero_es(n):
         80: 'ochenta',
         90: 'noventa'
     }
-
     if n < 10:
         return unidades[n]
-
     if n in especiais:
         return especiais[n]
-
     if n < 20:
         return 'dieci' + unidades[n - 10]
-
     if n < 30:
         return 'veinti' + unidades[n - 20]
-
     if n < 100:
         d = (n // 10) * 10
         r = n % 10
-
         if r == 0:
             return dezenas[d]
-
         return f"{dezenas[d]} y {unidades[r]}"
-
     return str(n)
 
-# ── VOZ ───────────────────────────────────────────────────────
+# -- Voz e fala --
 async def falar_edge(texto, voz="es-CO-GonzaloNeural", cancelar_evento=None):
-
     if not pygame.mixer.get_init():
         pygame.mixer.init()
-
     with tempfile.NamedTemporaryFile(delete=False, suffix=".mp3") as fp:
         caminho = fp.name
-
     communicate = edge_tts.Communicate(texto, voz)
-
     try:
         await communicate.save(caminho)
         if cancelar_evento and cancelar_evento.is_set():
             return
-
         pygame.mixer.music.load(caminho)
         pygame.mixer.music.play()
 
+        # -- Aguarda até que a reprodução termine ou seja cancelada:
         while pygame.mixer.music.get_busy():
             if cancelar_evento and cancelar_evento.is_set():
                 pygame.mixer.music.stop()
@@ -664,75 +632,58 @@ async def falar_edge(texto, voz="es-CO-GonzaloNeural", cancelar_evento=None):
             except OSError as erro:
                 logger.warning(f"Não foi possível remover áudio temporário: {erro}")
 
+# -- Função de fala com controle de idioma e cancelamento:
 def falar_texto(texto, idioma=None, ultima_fala_ref=None, cancelar_evento=None):
-
     global ultima_fala
     ultima_fala = texto
-
     if idioma is None:
         idioma = idioma_atual
-
     def _falar():
-
         with fala_lock:
-
             try:
                 if cancelar_evento and cancelar_evento.is_set():
                     return
-
                 tf = texto
-
                 mr = re.search(r'(\d+)\s*reais', texto.lower())
                 mc = re.search(r'(\d+)\s*centavos', texto.lower())
-
-                # ── PORTUGUES ─────────────────────
+                # -- Português (Brasil):
                 if idioma == IDIOMAS['PT_BR']:
-
                     if mr:
                         n = int(mr.group(1))
                         tf = f"{_num_pt(n)} reais"
-
                         if mc:
                             tf += f" e {_num_pt(int(mc.group(1)))} centavos"
-
                     elif mc:
                         tf = f"{_num_pt(int(mc.group(1)))} centavos"
-
-                # ── ESPANHOL ──────────────────────
+                # -- Espanhol (Colômbia):
                 elif idioma == IDIOMAS['ES_CO']:
-
                     if mr:
                         n = int(mr.group(1))
                         tf = f"{numero_es(n)} pesos colombianos"
-
                     elif mc:
                         tf = f"{numero_es(int(mc.group(1)))} centavos"
-
                     tf = tf.replace(
                         'QR Code detectado',
                         'Código QR detectado'
                     )
-
                     tf = tf.replace(
                         'Modo automatico ativado',
                         'Modo automático activado'
                     )
-
                     tf = tf.replace(
                         'Modo valores ativado',
                         'Modo valores activado'
                     )
-
                     tf = tf.replace(
                         'Modo QR Code ativado',
                         'Modo código QR activado'
                     )
-
                     tf = tf.replace(
                         'Screenshot salvo',
                         'Captura guardada'
                     )
 
+                # -- Seleção de voz e execução do TTS:
                 if idioma == IDIOMAS['ES_CO']:
                     asyncio.run(
                         falar_edge(
@@ -741,9 +692,7 @@ def falar_texto(texto, idioma=None, ultima_fala_ref=None, cancelar_evento=None):
                             cancelar_evento
                         )
                     )
-
                 else:
-
                     asyncio.run(
                         falar_edge(
                             tf,
@@ -751,12 +700,15 @@ def falar_texto(texto, idioma=None, ultima_fala_ref=None, cancelar_evento=None):
                             cancelar_evento
                         )
                     )
-
             except Exception as e:
                 logger.error(f"Erro na fala: {e}")
 
+# -- Inicia a thread de fala como daemon para não bloquear o programa principal:
     threading.Thread(target=_falar, daemon=True).start()
-# ── FILTRO MONETARIO ──────────────────────────────────────────
+
+# -- Formatação de valores monetários para fala --
+
+# -- Formata o valor monetário para fala, considerando o idioma:
 def formatar_fala(val, idioma=IDIOMAS['PT_BR']):
     p = val.strip().split(',')
     i = int(p[0].replace('.', '').strip())
@@ -767,35 +719,37 @@ def formatar_fala(val, idioma=IDIOMAS['PT_BR']):
         if i == 0:
             return f"{c} centavos"
         return f"{i} pesos colombianos e {c} centavos"
-
     if c == 0:
         return f"{i} reais"
     if i == 0:
         return f"{c} centavos"
     return f"{i} reais e {c} centavos"
 
+# -- Evita repetição de detecção de valores monetários em um curto período de tempo:
 def evitar_repeticao(texto, minimo=5):
     global ultimo_tempo, texto_anterior, valor_history
     agora = time.time()
-    
-    # Verifica histórico recente (últimos 5 valores)
+
+    # -- Verifica histórico recente (últimos 5 valores):
     valor_history.append((texto, agora))
     if len(valor_history) > VALOR_HISTORY_BUFFER:
         valor_history.pop(0)
-    
-    # Se o mesmo texto foi detecado nos últimos 'minimo' segundos, ignora
+
+    # -- Se o mesmo texto foi detecado nos últimos 'minimo' segundos, ignora:
     for hist_texto, hist_tempo in valor_history[:-1]:
         if hist_texto == texto and (agora - hist_tempo) < minimo:
             return False
-    
+
+    # -- Atualiza o último texto e tempo detectados:
     texto_anterior, ultimo_tempo = texto, agora
     return True
 
+# -- Evita repetição de detecção de QR Codes em um curto período de tempo:
 def pode_detectar(texto, cooldown=8):
-    """Verifica se o texto pode ser detectado novamente (com cooldown)."""
+    # -- Verifica se o texto pode ser detectado novamente (com cooldown):
     agora = time.time()
 
-    # Evita crescimento contínuo quando aparecem muitos QR Codes diferentes.
+    # -- Evita crescimento contínuo quando aparecem muitos QR Codes diferentes:
     expirados = [chave for chave, instante in ultimos_detectados.items()
                  if agora - instante >= cooldown]
     for chave in expirados:
@@ -808,6 +762,7 @@ def pode_detectar(texto, cooldown=8):
     ultimos_detectados[texto] = agora
     return True
 
+# -- Contornos ativos (valores e QR Codes) --
 def atualizar_contornos():
     global contornos_ativos
     agora = time.time()
@@ -816,32 +771,26 @@ def atualizar_contornos():
         if item[3] in ('VALOR', 'QRCODE') or (agora - item[2]) < CONTORNO_TEMPO_VIDA
     ]
 
+# -- Define um contorno ativo para exibição na interface:
 def definir_contorno_ativo(tl, br, texto, tipo):
-    """Mantém somente a detecção atual de cada tipo, sem rastros antigos."""
+    # -- Mantém somente a detecção atual de cada tipo, sem rastros antigos:
     global contornos_ativos
     contornos_ativos = [item for item in contornos_ativos if item[3] != tipo]
     contornos_ativos.append(((tl, br), texto, time.time(), tipo))
 
-
+# -- Remove contornos ativos de um tipo específico:
 def remover_contorno(tipo):
     global contornos_ativos
     contornos_ativos = [item for item in contornos_ativos if item[3] != tipo]
 
-
-# ── PROCESSAMENTO ─────────────────────────────────────────────
+# -- Processamento de QR Codes --
 def processar_qrcode(frame, estat):
     global ultimo_qrcode_visto, qrcode_anunciado
-
     try:
-
         data, bbox, _ = detector.detectAndDecode(frame)
-
     except cv2.error as e:
-
         logger.warning(f"Erro QRCodeDetector: {e}")
-
         return
-
     if not data or not data.strip():
         # A decodificação pode falhar em alguns frames mesmo com o QR visível.
         # A fala não é cancelada: o Edge-TTS pode ainda estar gerando o áudio.
@@ -850,29 +799,31 @@ def processar_qrcode(frame, estat):
             qrcode_anunciado = None
         return
 
+    # -- Atualiza o tempo do último QR Code visto:
     ultimo_qrcode_visto = time.time()
 
+    # -- Evita repetição de detecção do mesmo QR Code em um curto período:
     if bbox is not None:
         pts = bbox.astype(int).reshape(-1, 2)
         tl = (int(pts[:, 0].min()), int(pts[:, 1].min()))
         br = (int(pts[:, 0].max()), int(pts[:, 1].max()))
-        # O conteúdo pode incluir chave Pix ou URL de pagamento; não o exiba.
+        # -- O conteúdo pode incluir chave Pix ou URL de pagamento; não o exiba:
         definir_contorno_ativo(tl, br, "QR Code detectado", 'QRCODE')
     else:
         remover_contorno('QRCODE')
 
-    # Anuncia somente ao encontrar um QR novo. Mantê-lo diante da câmera não
-    # reinicia a fala repetidamente; após sumir, ele poderá ser anunciado outra vez.
+    # -- Anuncia somente ao encontrar um QR novo. Mantê-lo diante da câmera não
+    # reinicia a fala repetidamente; após sumir, ele poderá ser anunciado outra vez:
     if data != qrcode_anunciado:
         qrcode_anunciado = data
         logger.info("QR Code detectado (%d caracteres).", len(data))
         estat.registrar_deteccao('QRCODE')
         iniciar_fala_deteccao("QR Code detectado", idioma_atual, 'QRCODE')
 
+# -- Processamento de valores monetários com OCR --
 
-# ── OCR MONETÁRIO ─────────────────────────────────────────────
-# Lê o quadro inteiro e preserva a proporção da imagem, pois depender de
-# contornos descartava com frequência o visor antes mesmo do OCR ser chamado.
+# -- Lê o quadro inteiro e preserva a proporção da imagem, pois depender de
+# contornos descartava com frequência o visor antes mesmo do OCR ser chamado:
 def validar_valor(valor):
     try:
         valor = valor.strip().replace(' ', '')
@@ -886,7 +837,7 @@ def validar_valor(valor):
     except (ValueError, AttributeError):
         return False
 
-
+# -- Filtra e valida valores monetários detectados pelo OCR:
 def filtrar_valor_monetario(texto):
     if not texto:
         return None
@@ -908,13 +859,15 @@ def filtrar_valor_monetario(texto):
                 return valor
     return None
 
-
+# -- Busca o valor monetário global no quadro, retornando valor, confiança e contorno:
 def buscar_valor_global(frame):
     if reader is None:
         return None
 
+    # -- Redimensiona o quadro para acelerar o OCR, mantendo a proporção:
     altura, largura = frame.shape[:2]
-    # 640px já é a resolução nativa da câmera. Ampliar todo quadro para 960px
+
+    # -- 640px já é a resolução nativa da câmera. Ampliar todo quadro para 960px
     # aumentava muito o tempo de OCR em CPU sem melhorar proporcionalmente.
     escala = min(1.0, 640 / max(largura, 1))
     imagem = cv2.resize(frame, None, fx=escala, fy=escala,
@@ -922,12 +875,12 @@ def buscar_valor_global(frame):
     cinza = cv2.cvtColor(imagem, cv2.COLOR_BGR2GRAY)
     cinza = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8)).apply(cinza)
 
+    # -- Executa o OCR com configuração de allowlist para números e símbolos monetários:
     deteccoes = reader.readtext(
         cinza, detail=1, paragraph=False, batch_size=1,
         width_ths=1.5, height_ths=1.0,
         allowlist='0123456789R$,.', mag_ratio=1.5,
     )
-
     candidatos = []
     for bbox, texto, confianca in deteccoes:
         valor = filtrar_valor_monetario(texto)
@@ -950,16 +903,15 @@ def buscar_valor_global(frame):
     confianca, _, valor, topo_esq, baixo_dir = max(candidatos, key=lambda item: (item[0], item[1]))
     return valor, confianca, topo_esq, baixo_dir
 
-
+# -- Remove o contorno de valor ativo:
 def remover_contorno_valor():
     remover_contorno('VALOR')
 
-
+# -- Inicia a fala de detecção, cancelando qualquer fala anterior do mesmo tipo:
 def parar_fala_deteccao(tipo):
     global fala_deteccao_tipo, fala_deteccao_cancelamento
     if fala_deteccao_tipo != tipo or fala_deteccao_cancelamento is None:
         return
-
     fala_deteccao_cancelamento.set()
     try:
         if pygame.mixer.get_init():
@@ -969,7 +921,7 @@ def parar_fala_deteccao(tipo):
     fala_deteccao_tipo = None
     fala_deteccao_cancelamento = None
 
-
+# -- Inicia a fala de detecção, cancelando qualquer fala anterior do mesmo tipo:
 def iniciar_fala_deteccao(texto, idioma, tipo):
     global fala_deteccao_tipo, fala_deteccao_cancelamento
     parar_fala_deteccao(fala_deteccao_tipo)
@@ -977,12 +929,11 @@ def iniciar_fala_deteccao(texto, idioma, tipo):
     fala_deteccao_cancelamento = threading.Event()
     falar_texto(texto, idioma, None, fala_deteccao_cancelamento)
 
-
+# -- Processa os valores monetários detectados no quadro, atualizando contornos e estatísticas:
 def processar_valores(frame, estat):
     global ocr_rodando, tempo_ocr, regioes_detectadas
     if reader is None:
         return
-
     ocr_rodando = True
     inicio = time.time()
     try:
@@ -992,18 +943,15 @@ def processar_valores(frame, estat):
             remover_contorno_valor()
             parar_fala_deteccao('VALOR')
             return
-
         valor, confianca, topo_esq, baixo_dir = resultado
         if confianca < OCR_CONFIANCA_MINIMA:
             remover_contorno_valor()
             parar_fala_deteccao('VALOR')
             return
-
         texto_contorno = (f"COL$ {valor} pesos colombianos"
                            if idioma_atual == IDIOMAS['ES_CO']
                            else f"R$ {valor} reais")
         definir_contorno_ativo(topo_esq, baixo_dir, texto_contorno, 'VALOR')
-
         fala = formatar_fala(valor, idioma_atual)
         if evitar_repeticao(fala) and pode_detectar(fala):
             logger.info(f"Valor: {fala} (conf {confianca:.2f})")
@@ -1016,9 +964,10 @@ def processar_valores(frame, estat):
         tempo_ocr = (time.time() - inicio) * 1000
         ocr_rodando = False
 
-
+# -- Inicializa a classe de estatísticas:
 estatisticas = Estatisticas()
 
+# -- Mensagem de inicialização e log:
 print(f"[INFO] Aponte a camera para o visor da maquininha ou QR Code...")
 logger.info(f"Sistema PayAI iniciado - {LARGURA}x{ALTURA}")
 
