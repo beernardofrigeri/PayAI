@@ -971,17 +971,11 @@ estatisticas = Estatisticas()
 print(f"[INFO] Aponte a camera para o visor da maquininha ou QR Code...")
 logger.info(f"Sistema PayAI iniciado - {LARGURA}x{ALTURA}")
 
-# ── THREAD DE CARREGAMENTO OCR ───────────────────────────────
+# -- Thread de carregamento OCR --
 threading.Thread(
     target=carregar_ocr,
     daemon=True
 ).start()
-
-# ── THREAD CAMERA ────────────────────────────────────────────
-# threading.Thread(
-#     target=carregar_camera,
-#     daemon=True
-# ).start()
 
 def _iniciar_camera_thread():
     global cap, camera_pronta
@@ -995,24 +989,18 @@ threading.Thread(
     daemon=True
 ).start()
 
-# ── LOOP PRINCIPAL ────────────────────────────────────────────
+# -- Loop principal --
 _ocr_thread = OCRThread(fila_ocr, estatisticas)
 _ocr_thread.start()
 
 try:
     while True:
-                
-    # ── SPLASH SCREEN ───────────────────────────────────
+    # -- Splash screen --
         if not camera_pronta or not ocr_pronto:
-
             splash = np.zeros((ALTURA, LARGURA, 3), dtype=np.uint8)
-
             splash[:] = CORES['BG']
-
             img = cv2_para_pil(splash)
-
             draw = ImageDraw.Draw(img)
-
             texto_c(
                 draw,
                 "PAYAI",
@@ -1021,7 +1009,6 @@ try:
                 FONTES['logo_pay'],
                 CORES['ACENTO']
             )
-
             texto_c(
                 draw,
                 "Inicializando sistema...",
@@ -1030,17 +1017,12 @@ try:
                 FONTES['corpo_b'],
                 CORES['TEXTO_PRIM']
             )
-
             status = []
-
             if not camera_pronta:
                 status.append("Camera")
-
             if not ocr_pronto:
                 status.append("OCR")
-
             mensagens_loading = [
-
                 "Inicializando componentes",
                 "Preparando sistema",
                 "Carregando interface",
@@ -1064,15 +1046,12 @@ try:
                 "Preparando captura de imagem",
                 "Ativando componentes principais",
                 "Preparando ambiente de execucao",
-
             ]
-
             indice_msg = int(
                 time.time() * 0.45
             ) % len(mensagens_loading)
 
             texto_status = mensagens_loading[indice_msg]
-
             texto_status += f" | CAM:{camera_pronta} OCR:{ocr_pronto}"
 
             texto_c(
@@ -1083,58 +1062,44 @@ try:
                 FONTES['pequena'],
                 CORES['TEXTO_SEC']
             )
-
-            # Barra simples
+            # -- Desenha a barra simples:
             draw.rounded_rectangle(
                 [170, 305, 470, 317],
                 radius=5,
                 fill=CORES['CARD_BG']
             )
-
-            # ── PROGRESSO SUAVE ───────────────────────
-
+            # -- Atualiza o progresso suavemente --
             alvo = 0.90
 
             if camera_pronta and ocr_pronto:
                 alvo = 1.0
-
             if progresso_loading < alvo:
                 progresso_loading += 0.025
-
             progresso_loading = min(
                 progresso_loading,
                 alvo
             )
-
             largura = int(300 * progresso_loading)
-
             draw.rounded_rectangle(
                 [170, 305, 170 + largura, 317],
                 radius=5,
                 fill=CORES['ACENTO']
             )
 
-             # ── BRILHO SUAVE E CONTINUO ───────────
-
+            # -- Aplica brilho suave e contínuo --
             if largura > 80:
-
                 barra_x1 = 170
                 barra_x2 = 170 + largura
-
                 brilho_total = largura
-
                 brilho = (
                     time.time() * 70
                 ) % brilho_total
-
                 shine_x = barra_x1 + brilho
-
                 brilho_largura = 28
 
-                # Evita sair seco da barra
+                # -- Evita que o brilho ultrapasse a barra:
                 if shine_x < barra_x2:
-
-                    # Fade perto da entrada
+                    # -- Aplica fade perto da entrada:
                     entrada = min(
                         1.0,
                         max(
@@ -1142,8 +1107,7 @@ try:
                             (shine_x - barra_x1) / 25
                         )
                     )
-
-                    # Fade perto da saída
+                    # -- Aplica fade perto da saída:
                     saida = min(
                         1.0,
                         max(
@@ -1151,16 +1115,13 @@ try:
                             (barra_x2 - shine_x) / 25
                         )
                     )
-
                     intensidade = min(
                         entrada,
                         saida
                     )
-
                     branco = int(
                         140 + (115 * intensidade)
                     )
-
                     draw.rounded_rectangle(
                         [
                             shine_x - 2,
@@ -1171,7 +1132,6 @@ try:
                         radius=4,
                         fill=(branco, branco, branco)
                     )
-
             splash = pil_para_cv2(img)
 
             cv2.imshow(
@@ -1182,10 +1142,8 @@ try:
             if cv2.waitKey(1) & 0xFF == 27:
                 logger.info("Encerrado pelo usuario durante a inicializacao")
                 break
-
             continue
-
-        # ── CAMERA NORMAL ───────────────────────────────────
+        # -- Câmera normal --
         ret, frame = cap.read()
 
         if not ret:
@@ -1195,15 +1153,12 @@ try:
 
         if frame_count % 10 == 0:
             agora_fps = time.time()
-
             fps_atual = 10 / (
                 agora_fps - ultimo_fps_tempo
             )
-
             ultimo_fps_tempo = agora_fps
-        
-        agora = time.time()
 
+        agora = time.time()
         atualizar_contornos()
 
         if modo_atual in (MODOS['AUTO'], MODOS['VALORES']):
@@ -1221,7 +1176,6 @@ try:
             processar_qrcode(frame, estatisticas)
 
         frame_final = desenhar_interface(frame, estatisticas, agora)
-
         cv2.imshow("PayAI - Sistema Inteligente", frame_final)
 
         key = cv2.waitKey(1) & 0xFF
@@ -1262,21 +1216,19 @@ try:
 
 except Exception as e:
     logger.error(f"Erro critico: {e}")
-
 finally:
     try:
         parar_fala_deteccao('VALOR')
         parar_fala_deteccao('QRCODE')
     except Exception:
         pass
-
     if cap:
         try:
             cap.release()
         except Exception:
             pass
     else:
-        # se camera for gerenciada pela classe
+        # -- Libera a câmera gerenciada pela classe:
         try:
             _camera.release()
         except Exception:
@@ -1285,7 +1237,8 @@ finally:
     cv2.destroyAllWindows()
     logger.info(f"Estatisticas finais: {estatisticas.obter_estatisticas()}")
     logger.info("Sistema PayAI finalizado")
-    # parar thread OCR
+    
+    # -- Para a thread OCR:
     try:
         _ocr_thread.stop()
     except Exception:
