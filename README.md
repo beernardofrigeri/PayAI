@@ -89,9 +89,30 @@ Observações:
 ```text
 .
 ├── PayAI.py
+├── prepare_yolo_dataset.py
+├── train_banknotes.py
+├── requirements-yolo.txt
 ├── README.md
 └── requirements.txt
 ```
+
+## Treinamento experimental de cédulas
+
+O dataset de cédulas atualmente está organizado por denominação, mas não
+possui caixas delimitadoras. Para validar o pipeline de detecção, gere rótulos
+iniciais cobrindo a imagem inteira:
+
+```powershell
+python prepare_yolo_dataset.py
+pip install -r requirements-yolo.txt
+python train_banknotes.py
+```
+
+Esse treinamento é apenas um protótipo: as imagens atuais mostram a cédula
+isolada e ocupando quase todo o quadro. Para reconhecer cédulas na câmera,
+adicione fotos com diferentes distâncias, ângulos, iluminação e fundos, e
+anote a caixa real de cada cédula. O modelo treinado será salvo em
+`runs/banknotes/weights/best.pt`.
 
 ---
 

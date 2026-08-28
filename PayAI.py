@@ -12,6 +12,7 @@ from PIL import ImageFont, ImageDraw, Image
 import pygame
 import tempfile
 from queue import Queue, Empty, Full
+from ultralytics import YOLO
 
 # --Configurações do sistema--
 
@@ -28,6 +29,12 @@ CONTORNO_TEMPO_VIDA = 0.8
 OCR_QUEUE_SIZE = 1
 VALOR_HISTORY_BUFFER = 5
 OCR_USAR_GPU = os.environ.get('PAYAI_USAR_GPU', '0') == '1'
+YOLO_INTERVAL = 0.5
+YOLO_CONFIANCA_MINIMA = 0.01
+YOLO_MODELO = os.path.join(
+    os.path.dirname(__file__),
+    'runs', 'banknotes-3', 'weights', 'best.pt'
+)
 # Obs. sobre a função acima:
 # Raspberry Pi normalmente não possui GPU compatível com o EasyOCR. Para usar
 # uma GPU compatível em outro equipamento, execute com PAYAI_USAR_GPU=1.
@@ -75,6 +82,8 @@ logger = logging.getLogger('payai')
 # -- OCR / voz do sistema --
 reader = None
 ocr_pronto = False
+yolo_modelo = None
+yolo_pronto = False
 
 # -- Câmera --
 cap = None
@@ -151,12 +160,14 @@ ultimo_tempo         = time.time()
 texto_anterior       = ""
 frame_count          = 0
 ultimo_processamento = 0
+ultimo_yolo_processamento = 0
 contornos_ativos     = []
 ultimos_detectados   = {}
 fps_atual = 0
 ultimo_fps_tempo = time.time()
 tempo_ocr = 0
 regioes_detectadas = 0
+deteccoes_cedulas   = []
 fila_ocr = Queue(maxsize=OCR_QUEUE_SIZE)
 fala_lock            = threading.Lock()
 ultima_fala          = ""
@@ -199,6 +210,52 @@ def carregar_ocr():
     except Exception as e:
         logger.error(f"Erro carregando OCR: {e}")
         print(e)
+
+def carregar_yolo():
+    global yolo_modelo, yolo_pronto
+    if not os.path.exists(YOLO_MODELO):
+        logger.warning("Modelo YOLO não encontrado: %s", YOLO_MODELO)
+        return
+    try:
+        logger.info("Carregando modelo YOLO de cédulas...")
+        yolo_modelo = YOLO(YOLO_MODELO)
+        yolo_pronto = True
+        logger.info("Modelo YOLO de cédulas pronto.")
+    except Exception as erro:
+        logger.error(f"Erro carregando modelo YOLO: {erro}")
+
+def processar_cedulas(frame):
+    global deteccoes_cedulas, contornos_ativos
+    if not yolo_pronto or yolo_modelo is None:
+        return
+    try:
+        resultado = yolo_modelo.predict(
+            source=frame,
+            conf=YOLO_CONFIANCA_MINIMA,
+            verbose=False,
+            device='cpu'
+        )[0]
+        deteccoes = []
+        for caixa in resultado.boxes:
+            confianca = float(caixa.conf[0])
+            classe = int(caixa.cls[0])
+            nome = resultado.names[classe]
+            x1, y1, x2, y2 = caixa.xyxy[0].int().tolist()
+            deteccoes.append((confianca, nome, (x1, y1), (x2, y2)))
+
+        deteccoes_cedulas = deteccoes
+        contornos_ativos = [
+            item for item in contornos_ativos if item[3] != 'CEDULA'
+        ]
+        for confianca, nome, topo_esq, baixo_dir in deteccoes:
+            contornos_ativos.append((
+                (topo_esq, baixo_dir),
+                f"Cedula R$ {nome} ({confianca:.0%})",
+                time.time(),
+                'CEDULA'
+            ))
+    except Exception as erro:
+        logger.error(f"Erro na detecção YOLO: {erro}")
 
 # -- Thread de OCR --
 class OCRThread(threading.Thread):
@@ -977,6 +1034,11 @@ threading.Thread(
     daemon=True
 ).start()
 
+threading.Thread(
+    target=carregar_yolo,
+    daemon=True
+).start()
+
 def _iniciar_camera_thread():
     global cap, camera_pronta
     ok = _camera.start()
@@ -1174,6 +1236,11 @@ try:
 
         if modo_atual in (MODOS['AUTO'], MODOS['QRCODE']):
             processar_qrcode(frame, estatisticas)
+
+        if modo_atual in (MODOS['AUTO'], MODOS['VALORES']):
+            if agora - ultimo_yolo_processamento > YOLO_INTERVAL:
+                ultimo_yolo_processamento = agora
+                processar_cedulas(frame)
 
         frame_final = desenhar_interface(frame, estatisticas, agora)
         cv2.imshow("PayAI - Sistema Inteligente", frame_final)
