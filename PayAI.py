@@ -170,6 +170,7 @@ regioes_detectadas = 0
 deteccoes_cedulas   = []
 fila_ocr = Queue(maxsize=OCR_QUEUE_SIZE)
 fala_lock            = threading.Lock()
+estado_lock          = threading.RLock()
 ultima_fala          = ""
 valor_history        = []
 fala_deteccao_tipo    = None
@@ -243,17 +244,18 @@ def processar_cedulas(frame):
             x1, y1, x2, y2 = caixa.xyxy[0].int().tolist()
             deteccoes.append((confianca, nome, (x1, y1), (x2, y2)))
 
-        deteccoes_cedulas = deteccoes
-        contornos_ativos = [
-            item for item in contornos_ativos if item[3] != 'CEDULA'
-        ]
-        for confianca, nome, topo_esq, baixo_dir in deteccoes:
-            contornos_ativos.append((
-                (topo_esq, baixo_dir),
-                f"Cedula R$ {nome} ({confianca:.0%})",
-                time.time(),
-                'CEDULA'
-            ))
+        with estado_lock:
+            deteccoes_cedulas = deteccoes
+            contornos_ativos = [
+                item for item in contornos_ativos if item[3] != 'CEDULA'
+            ]
+            for confianca, nome, topo_esq, baixo_dir in deteccoes:
+                contornos_ativos.append((
+                    (topo_esq, baixo_dir),
+                    f"Cedula R$ {nome} ({confianca:.0%})",
+                    time.time(),
+                    'CEDULA'
+                ))
     except Exception as erro:
         logger.error(f"Erro na detecção YOLO: {erro}")
 
@@ -309,7 +311,9 @@ def texto_c(draw, texto, cx, y, fonte, cor):
 
 # -- Contornos ativos (valores e QR Codes):
 def desenhar_contornos(draw, agora):
-    for (top_left, bottom_right), texto, timestamp, tipo in contornos_ativos:
+    with estado_lock:
+        contornos_snapshot = list(contornos_ativos)
+    for (top_left, bottom_right), texto, timestamp, tipo in contornos_snapshot:
         alpha = 255 if tipo in ('VALOR', 'QRCODE') else 220
         cor      = CORES['ACENTO'] if tipo == 'QRCODE' else CORES['AMARELO']
 
@@ -330,6 +334,11 @@ def desenhar_interface(frame, estatisticas, agora):
     img  = cv2_para_pil(frame)
     draw = ImageDraw.Draw(img)
     W, H = img.size
+    with estado_lock:
+        modo_local = modo_atual
+        idioma_local = idioma_atual
+        tempo_ocr_local = tempo_ocr
+        regioes_local = regioes_detectadas
 
     # -- Header:
     draw.rectangle([0, 0, W, 42], fill=CORES['BG'])
@@ -368,14 +377,14 @@ def desenhar_interface(frame, estatisticas, agora):
 
     # -- Obter rótulo e cor do modo atual --
     modo_label, cor_modo = modos_cfg.get(
-        modo_atual,
+        modo_local,
         ("AUTO", CORES['ACENTO'])
     )
 
     # -- Obter rótulo do idioma atual --
     idioma_label = (
         'PT-BR'
-        if idioma_atual == IDIOMAS['PT_BR']
+        if idioma_local == IDIOMAS['PT_BR']
         else 'ES-CO'
     )
 
@@ -445,8 +454,8 @@ def desenhar_interface(frame, estatisticas, agora):
             ("QR Codes", str(stats['qrcodes_detectados'])),
             ("Taxa",     f"{stats['detectoes_por_minuto']:.1f}/min"),
             ("FPS",      f"{fps_atual:.1f}"),
-            ("OCR",      f"{tempo_ocr:.0f}ms"),
-            ("Regioes",  str(regioes_detectadas)),
+            ("OCR",      f"{tempo_ocr_local:.0f}ms"),
+            ("Regioes",  str(regioes_local)),
         ]       
         sy = 50
         for label, valor in itens:
@@ -514,9 +523,9 @@ def desenhar_interface(frame, estatisticas, agora):
 
         # -- Determinar se o botão está ativo (modo atual):
         ativo = (
-            (tecla == "A" and modo_atual == 0) or
-            (tecla == "V" and modo_atual == 1) or
-            (tecla == "Q" and modo_atual == 2)
+            (tecla == "A" and modo_local == 0) or
+            (tecla == "V" and modo_local == 1) or
+            (tecla == "Q" and modo_local == 2)
         )
 
         cor_fill  = CORES['ACENTO_DIM'] if ativo else CORES['CARD_BG']
@@ -562,28 +571,36 @@ def desenhar_interface(frame, estatisticas, agora):
 # -- Classe para estatísticas de detecção --
 class Estatisticas:
     def __init__(self):
+        self._lock = threading.Lock()
         self.valores_detectados = 0
         self.qrcodes_detectados = 0
         self.erros_ocr          = 0
         self.inicio             = time.time()
 
     def registrar_deteccao(self, tipo):
-        if tipo == 'VALOR':    
-            self.valores_detectados += 1
-        elif tipo == 'QRCODE': 
-            self.qrcodes_detectados += 1
+        with self._lock:
+            if tipo == 'VALOR':
+                self.valores_detectados += 1
+            elif tipo == 'QRCODE':
+                self.qrcodes_detectados += 1
 
     def registrar_erro(self):
-        self.erros_ocr += 1
+        with self._lock:
+            self.erros_ocr += 1
 
     def obter_estatisticas(self):
-        t     = time.time() - self.inicio
-        total = self.valores_detectados + self.qrcodes_detectados
+        with self._lock:
+            valores_detectados = self.valores_detectados
+            qrcodes_detectados = self.qrcodes_detectados
+            erros_ocr = self.erros_ocr
+            inicio = self.inicio
+        t = time.time() - inicio
+        total = valores_detectados + qrcodes_detectados
         return {
             'tempo_execucao':       t,
-            'valores_detectados':   self.valores_detectados,
-            'qrcodes_detectados':   self.qrcodes_detectados,
-            'erros_ocr':            self.erros_ocr,
+            'valores_detectados':   valores_detectados,
+            'qrcodes_detectados':   qrcodes_detectados,
+            'erros_ocr':            erros_ocr,
             'detectoes_por_minuto': total / (t / 60) if t > 0 else 0,
         }
 
@@ -658,6 +675,149 @@ def numero_es(n):
         return f"{dezenas[d]} y {unidades[r]}"
     return str(n)
 
+
+def preparar_texto_fala(texto, idioma):
+    tf = texto
+    texto_base = texto.lower()
+    mr = re.search(r'(\d+)\s*reais', texto_base)
+    mc = re.search(r'(\d+)\s*centavos', texto_base)
+    mp = re.search(r'(\d+)\s*pesos colombianos', texto_base)
+
+    # -- Português (Brasil):
+    if idioma == IDIOMAS['PT_BR']:
+        if mr:
+            n = int(mr.group(1))
+            tf = f"{_num_pt(n)} reais"
+            if mc:
+                tf += f" e {_num_pt(int(mc.group(1)))} centavos"
+        elif mc:
+            tf = f"{_num_pt(int(mc.group(1)))} centavos"
+
+    # -- Espanhol (Colômbia):
+    elif idioma == IDIOMAS['ES_CO']:
+        if mp:
+            pesos = numero_es(int(mp.group(1)))
+            if mc:
+                centavos = numero_es(int(mc.group(1)))
+                tf = f"{pesos} pesos colombianos y {centavos} centavos"
+            else:
+                tf = f"{pesos} pesos colombianos"
+        elif mr:
+            # Compatibilidade para textos em PT em contexto de voz ES.
+            tf = f"{numero_es(int(mr.group(1)))} pesos colombianos"
+        elif mc:
+            tf = f"{numero_es(int(mc.group(1)))} centavos"
+
+        tf = tf.replace(
+            'QR Code detectado',
+            'Código QR detectado'
+        )
+        tf = tf.replace(
+            'Modo automatico ativado',
+            'Modo automático activado'
+        )
+        tf = tf.replace(
+            'Modo valores ativado',
+            'Modo valores activado'
+        )
+        tf = tf.replace(
+            'Modo QR Code ativado',
+            'Modo código QR activado'
+        )
+        tf = tf.replace(
+            'Screenshot salvo',
+            'Captura guardada'
+        )
+
+    return tf
+
+
+class SpeechWorker:
+    def __init__(self, tamanho_fila=8):
+        self._fila = Queue(maxsize=tamanho_fila)
+        self._parar = threading.Event()
+        self._thread = None
+
+    def start(self):
+        if self._thread is not None and self._thread.is_alive():
+            return
+        self._parar.clear()
+        self._thread = threading.Thread(target=self._loop, name="payai-speech-worker")
+        self._thread.start()
+
+    def enqueue(self, texto, idioma, cancelar_evento=None):
+        self.start()
+        if self._parar.is_set():
+            return
+        item = (texto, idioma, cancelar_evento)
+        try:
+            self._fila.put_nowait(item)
+        except Full:
+            try:
+                self._fila.get_nowait()
+            except Empty:
+                pass
+            try:
+                self._fila.put_nowait(item)
+            except Full:
+                pass
+
+    def _loop(self):
+        while True:
+            if self._parar.is_set() and self._fila.empty():
+                break
+            try:
+                item = self._fila.get(timeout=0.1)
+            except Empty:
+                continue
+            if item is None:
+                continue
+            texto, idioma, cancelar_evento = item
+            if cancelar_evento and cancelar_evento.is_set():
+                continue
+            with fala_lock:
+                try:
+                    tf = preparar_texto_fala(texto, idioma)
+                    if idioma == IDIOMAS['ES_CO']:
+                        asyncio.run(
+                            falar_edge(
+                                tf,
+                                "es-CO-GonzaloNeural",
+                                cancelar_evento
+                            )
+                        )
+                    else:
+                        asyncio.run(
+                            falar_edge(
+                                tf,
+                                "pt-BR-AntonioNeural",
+                                cancelar_evento
+                            )
+                        )
+                except Exception as e:
+                    logger.error(f"Erro na fala: {e}")
+
+    def stop(self, timeout=3.0):
+        self._parar.set()
+        try:
+            self._fila.put_nowait(None)
+        except Full:
+            pass
+        if self._thread is not None:
+            self._thread.join(timeout=timeout)
+            self._thread = None
+        with fala_lock:
+            try:
+                if pygame.mixer.get_init():
+                    pygame.mixer.music.stop()
+                    try:
+                        pygame.mixer.music.unload()
+                    except pygame.error:
+                        pass
+                    pygame.mixer.quit()
+            except pygame.error:
+                pass
+
 # -- Voz e fala --
 async def falar_edge(texto, voz="es-CO-GonzaloNeural", cancelar_evento=None):
     if not pygame.mixer.get_init():
@@ -689,79 +849,16 @@ async def falar_edge(texto, voz="es-CO-GonzaloNeural", cancelar_evento=None):
             except OSError as erro:
                 logger.warning(f"Não foi possível remover áudio temporário: {erro}")
 
+speech_worker = SpeechWorker()
+
 # -- Função de fala com controle de idioma e cancelamento:
 def falar_texto(texto, idioma=None, ultima_fala_ref=None, cancelar_evento=None):
     global ultima_fala
     ultima_fala = texto
     if idioma is None:
-        idioma = idioma_atual
-    def _falar():
-        with fala_lock:
-            try:
-                if cancelar_evento and cancelar_evento.is_set():
-                    return
-                tf = texto
-                mr = re.search(r'(\d+)\s*reais', texto.lower())
-                mc = re.search(r'(\d+)\s*centavos', texto.lower())
-                # -- Português (Brasil):
-                if idioma == IDIOMAS['PT_BR']:
-                    if mr:
-                        n = int(mr.group(1))
-                        tf = f"{_num_pt(n)} reais"
-                        if mc:
-                            tf += f" e {_num_pt(int(mc.group(1)))} centavos"
-                    elif mc:
-                        tf = f"{_num_pt(int(mc.group(1)))} centavos"
-                # -- Espanhol (Colômbia):
-                elif idioma == IDIOMAS['ES_CO']:
-                    if mr:
-                        n = int(mr.group(1))
-                        tf = f"{numero_es(n)} pesos colombianos"
-                    elif mc:
-                        tf = f"{numero_es(int(mc.group(1)))} centavos"
-                    tf = tf.replace(
-                        'QR Code detectado',
-                        'Código QR detectado'
-                    )
-                    tf = tf.replace(
-                        'Modo automatico ativado',
-                        'Modo automático activado'
-                    )
-                    tf = tf.replace(
-                        'Modo valores ativado',
-                        'Modo valores activado'
-                    )
-                    tf = tf.replace(
-                        'Modo QR Code ativado',
-                        'Modo código QR activado'
-                    )
-                    tf = tf.replace(
-                        'Screenshot salvo',
-                        'Captura guardada'
-                    )
-
-                # -- Seleção de voz e execução do TTS:
-                if idioma == IDIOMAS['ES_CO']:
-                    asyncio.run(
-                        falar_edge(
-                            tf,
-                            "es-CO-GonzaloNeural",
-                            cancelar_evento
-                        )
-                    )
-                else:
-                    asyncio.run(
-                        falar_edge(
-                            tf,
-                            "pt-BR-AntonioNeural",
-                            cancelar_evento
-                        )
-                    )
-            except Exception as e:
-                logger.error(f"Erro na fala: {e}")
-
-# -- Inicia a thread de fala como daemon para não bloquear o programa principal:
-    threading.Thread(target=_falar, daemon=True).start()
+        with estado_lock:
+            idioma = idioma_atual
+    speech_worker.enqueue(texto, idioma, cancelar_evento)
 
 # -- Formatação de valores monetários para fala --
 
@@ -786,59 +883,62 @@ def formatar_fala(val, idioma=IDIOMAS['PT_BR']):
 def evitar_repeticao(texto, minimo=5):
     global ultimo_tempo, texto_anterior, valor_history
     agora = time.time()
+    with estado_lock:
+        # -- Verifica histórico recente (últimos 5 valores):
+        valor_history.append((texto, agora))
+        if len(valor_history) > VALOR_HISTORY_BUFFER:
+            valor_history.pop(0)
 
-    # -- Verifica histórico recente (últimos 5 valores):
-    valor_history.append((texto, agora))
-    if len(valor_history) > VALOR_HISTORY_BUFFER:
-        valor_history.pop(0)
+        # -- Se o mesmo texto foi detecado nos últimos 'minimo' segundos, ignora:
+        for hist_texto, hist_tempo in valor_history[:-1]:
+            if hist_texto == texto and (agora - hist_tempo) < minimo:
+                return False
 
-    # -- Se o mesmo texto foi detecado nos últimos 'minimo' segundos, ignora:
-    for hist_texto, hist_tempo in valor_history[:-1]:
-        if hist_texto == texto and (agora - hist_tempo) < minimo:
-            return False
-
-    # -- Atualiza o último texto e tempo detectados:
-    texto_anterior, ultimo_tempo = texto, agora
-    return True
+        # -- Atualiza o último texto e tempo detectados:
+        texto_anterior, ultimo_tempo = texto, agora
+        return True
 
 # -- Evita repetição de detecção de QR Codes em um curto período de tempo:
 def pode_detectar(texto, cooldown=8):
     # -- Verifica se o texto pode ser detectado novamente (com cooldown):
     agora = time.time()
+    with estado_lock:
+        # -- Evita crescimento contínuo quando aparecem muitos QR Codes diferentes:
+        expirados = [chave for chave, instante in ultimos_detectados.items()
+                     if agora - instante >= cooldown]
+        for chave in expirados:
+            del ultimos_detectados[chave]
 
-    # -- Evita crescimento contínuo quando aparecem muitos QR Codes diferentes:
-    expirados = [chave for chave, instante in ultimos_detectados.items()
-                 if agora - instante >= cooldown]
-    for chave in expirados:
-        del ultimos_detectados[chave]
+        if texto in ultimos_detectados:
+            if agora - ultimos_detectados[texto] < cooldown:
+                return False
 
-    if texto in ultimos_detectados:
-        if agora - ultimos_detectados[texto] < cooldown:
-            return False
-
-    ultimos_detectados[texto] = agora
-    return True
+        ultimos_detectados[texto] = agora
+        return True
 
 # -- Contornos ativos (valores e QR Codes) --
 def atualizar_contornos():
     global contornos_ativos
     agora = time.time()
-    contornos_ativos = [
-        item for item in contornos_ativos
-        if item[3] in ('VALOR', 'QRCODE') or (agora - item[2]) < CONTORNO_TEMPO_VIDA
-    ]
+    with estado_lock:
+        contornos_ativos = [
+            item for item in contornos_ativos
+            if item[3] in ('VALOR', 'QRCODE') or (agora - item[2]) < CONTORNO_TEMPO_VIDA
+        ]
 
 # -- Define um contorno ativo para exibição na interface:
 def definir_contorno_ativo(tl, br, texto, tipo):
     # -- Mantém somente a detecção atual de cada tipo, sem rastros antigos:
     global contornos_ativos
-    contornos_ativos = [item for item in contornos_ativos if item[3] != tipo]
-    contornos_ativos.append(((tl, br), texto, time.time(), tipo))
+    with estado_lock:
+        contornos_ativos = [item for item in contornos_ativos if item[3] != tipo]
+        contornos_ativos.append(((tl, br), texto, time.time(), tipo))
 
 # -- Remove contornos ativos de um tipo específico:
 def remover_contorno(tipo):
     global contornos_ativos
-    contornos_ativos = [item for item in contornos_ativos if item[3] != tipo]
+    with estado_lock:
+        contornos_ativos = [item for item in contornos_ativos if item[3] != tipo]
 
 # -- Processamento de QR Codes --
 def processar_qrcode(frame, estat):
@@ -851,13 +951,17 @@ def processar_qrcode(frame, estat):
     if not data or not data.strip():
         # A decodificação pode falhar em alguns frames mesmo com o QR visível.
         # A fala não é cancelada: o Edge-TTS pode ainda estar gerando o áudio.
-        if time.time() - ultimo_qrcode_visto > QRCODE_PERDA_GRACA:
+        with estado_lock:
+            apagar_qrcode = (time.time() - ultimo_qrcode_visto) > QRCODE_PERDA_GRACA
+            if apagar_qrcode:
+                qrcode_anunciado = None
+        if apagar_qrcode:
             remover_contorno('QRCODE')
-            qrcode_anunciado = None
         return
 
     # -- Atualiza o tempo do último QR Code visto:
-    ultimo_qrcode_visto = time.time()
+    with estado_lock:
+        ultimo_qrcode_visto = time.time()
 
     # -- Evita repetição de detecção do mesmo QR Code em um curto período:
     if bbox is not None:
@@ -871,11 +975,16 @@ def processar_qrcode(frame, estat):
 
     # -- Anuncia somente ao encontrar um QR novo. Mantê-lo diante da câmera não
     # reinicia a fala repetidamente; após sumir, ele poderá ser anunciado outra vez:
-    if data != qrcode_anunciado:
-        qrcode_anunciado = data
+    with estado_lock:
+        anunciar = data != qrcode_anunciado
+        if anunciar:
+            qrcode_anunciado = data
+    if anunciar:
         logger.info("QR Code detectado (%d caracteres).", len(data))
         estat.registrar_deteccao('QRCODE')
-        iniciar_fala_deteccao("QR Code detectado", idioma_atual, 'QRCODE')
+        with estado_lock:
+            idioma = idioma_atual
+        iniciar_fala_deteccao("QR Code detectado", idioma, 'QRCODE')
 
 # -- Processamento de valores monetários com OCR --
 
@@ -902,10 +1011,10 @@ def filtrar_valor_monetario(texto):
     # O EasyOCR confunde O/0 com frequência em displays de sete segmentos.
     texto = texto.upper().replace('O', '0').replace(' ', '')
     padroes = (
-        r'R\$?(\d{1,3}(?:\.\d{3})*,\d{2})',
-        r'(\d{1,3}(?:\.\d{3})*,\d{2})R\$?',
-        r'(\d{1,3}(?:\.\d{3})*,\d{2})',
-        r'(\d{1,3}\.\d{2})',
+        r'R\$?((?:\d{1,3}(?:\.\d{3})+|\d+),\d{2})',
+        r'((?:\d{1,3}(?:\.\d{3})+|\d+),\d{2})R\$?',
+        r'(?<!\d)((?:\d{1,3}(?:\.\d{3})+|\d+),\d{2})(?!\d)',
+        r'(?<!\d)(\d+\.\d{2})(?!\d)',
     )
     for padrao in padroes:
         for encontrado in re.finditer(padrao, texto):
@@ -967,24 +1076,31 @@ def remover_contorno_valor():
 # -- Inicia a fala de detecção, cancelando qualquer fala anterior do mesmo tipo:
 def parar_fala_deteccao(tipo):
     global fala_deteccao_tipo, fala_deteccao_cancelamento
-    if fala_deteccao_tipo != tipo or fala_deteccao_cancelamento is None:
-        return
-    fala_deteccao_cancelamento.set()
-    try:
-        if pygame.mixer.get_init():
-            pygame.mixer.music.stop()
-    except pygame.error:
-        pass
-    fala_deteccao_tipo = None
-    fala_deteccao_cancelamento = None
+    with estado_lock:
+        if fala_deteccao_tipo != tipo or fala_deteccao_cancelamento is None:
+            return
+        cancelar_evento = fala_deteccao_cancelamento
+        fala_deteccao_tipo = None
+        fala_deteccao_cancelamento = None
+    cancelar_evento.set()
+    with fala_lock:
+        try:
+            if pygame.mixer.get_init():
+                pygame.mixer.music.stop()
+        except pygame.error:
+            pass
 
 # -- Inicia a fala de detecção, cancelando qualquer fala anterior do mesmo tipo:
 def iniciar_fala_deteccao(texto, idioma, tipo):
     global fala_deteccao_tipo, fala_deteccao_cancelamento
-    parar_fala_deteccao(fala_deteccao_tipo)
-    fala_deteccao_tipo = tipo
-    fala_deteccao_cancelamento = threading.Event()
-    falar_texto(texto, idioma, None, fala_deteccao_cancelamento)
+    with estado_lock:
+        tipo_ativo = fala_deteccao_tipo
+    parar_fala_deteccao(tipo_ativo)
+    with estado_lock:
+        fala_deteccao_tipo = tipo
+        fala_deteccao_cancelamento = threading.Event()
+        cancelar_evento = fala_deteccao_cancelamento
+    falar_texto(texto, idioma, None, cancelar_evento)
 
 # -- Processa os valores monetários detectados no quadro, atualizando contornos e estatísticas:
 def processar_valores(frame, estat):
@@ -995,7 +1111,8 @@ def processar_valores(frame, estat):
     inicio = time.time()
     try:
         resultado = buscar_valor_global(frame)
-        regioes_detectadas = 1 if resultado else 0
+        with estado_lock:
+            regioes_detectadas = 1 if resultado else 0
         if not resultado:
             remover_contorno_valor()
             parar_fala_deteccao('VALOR')
@@ -1005,39 +1122,24 @@ def processar_valores(frame, estat):
             remover_contorno_valor()
             parar_fala_deteccao('VALOR')
             return
+        with estado_lock:
+            idioma = idioma_atual
         texto_contorno = (f"COL$ {valor} pesos colombianos"
-                           if idioma_atual == IDIOMAS['ES_CO']
+                           if idioma == IDIOMAS['ES_CO']
                            else f"R$ {valor} reais")
         definir_contorno_ativo(topo_esq, baixo_dir, texto_contorno, 'VALOR')
-        fala = formatar_fala(valor, idioma_atual)
+        fala = formatar_fala(valor, idioma)
         if evitar_repeticao(fala) and pode_detectar(fala):
             logger.info(f"Valor: {fala} (conf {confianca:.2f})")
             estat.registrar_deteccao('VALOR')
-            iniciar_fala_deteccao(fala, idioma_atual, 'VALOR')
+            iniciar_fala_deteccao(fala, idioma, 'VALOR')
     except Exception as erro:
         logger.error(f"Erro OCR: {erro}")
         estat.registrar_erro()
     finally:
-        tempo_ocr = (time.time() - inicio) * 1000
+        with estado_lock:
+            tempo_ocr = (time.time() - inicio) * 1000
         ocr_rodando = False
-
-# -- Inicializa a classe de estatísticas:
-estatisticas = Estatisticas()
-
-# -- Mensagem de inicialização e log:
-print(f"[INFO] Aponte a camera para o visor da maquininha ou QR Code...")
-logger.info(f"Sistema PayAI iniciado - {LARGURA}x{ALTURA}")
-
-# -- Thread de carregamento OCR --
-threading.Thread(
-    target=carregar_ocr,
-    daemon=True
-).start()
-
-threading.Thread(
-    target=carregar_yolo,
-    daemon=True
-).start()
 
 def _iniciar_camera_thread():
     global cap, camera_pronta
@@ -1046,267 +1148,313 @@ def _iniciar_camera_thread():
         cap = _camera.cap
         camera_pronta = True
 
-threading.Thread(
-    target=_iniciar_camera_thread,
-    daemon=True
-).start()
+def main():
+    global frame_count
+    global fps_atual
+    global ultimo_fps_tempo
+    global ultimo_processamento
+    global ultimo_yolo_processamento
+    global modo_atual
+    global idioma_atual
+    global qrcode_anunciado
+    global progresso_loading
 
-# -- Loop principal --
-_ocr_thread = OCRThread(fila_ocr, estatisticas)
-_ocr_thread.start()
+    estatisticas = Estatisticas()
+    _ocr_thread = None
 
-try:
-    while True:
-    # -- Splash screen --
-        if not camera_pronta or not ocr_pronto:
-            splash = np.zeros((ALTURA, LARGURA, 3), dtype=np.uint8)
-            splash[:] = CORES['BG']
-            img = cv2_para_pil(splash)
-            draw = ImageDraw.Draw(img)
-            texto_c(
-                draw,
-                "PAYAI",
-                LARGURA // 2,
-                165,
-                FONTES['logo_pay'],
-                CORES['ACENTO']
-            )
-            texto_c(
-                draw,
-                "Inicializando sistema...",
-                LARGURA // 2,
-                225,
-                FONTES['corpo_b'],
-                CORES['TEXTO_PRIM']
-            )
-            status = []
-            if not camera_pronta:
-                status.append("Camera")
-            if not ocr_pronto:
-                status.append("OCR")
-            mensagens_loading = [
-                "Inicializando componentes",
-                "Preparando sistema",
-                "Carregando interface",
-                "Verificando modulos",
-                "Inicializando camera",
-                "Preparando reconhecimento",
-                "Otimizando OCR",
-                "Configurando acessibilidade",
-                "Preparando sistema de voz",
-                "Carregando deteccao inteligente",
-                "Verificando desempenho",
-                "Sincronizando componentes",
-                "Iniciando visao computacional",
-                "Configurando analise inteligente",
-                "Inicializando assistente visual",
-                "Preparando leitura automatica",
-                "Sincronizando reconhecimento",
-                "Aplicando melhorias de desempenho",
-                "Verificando integridade do sistema",
-                "Otimizando inicializacao",
-                "Preparando captura de imagem",
-                "Ativando componentes principais",
-                "Preparando ambiente de execucao",
-            ]
-            indice_msg = int(
-                time.time() * 0.45
-            ) % len(mensagens_loading)
+    # -- Mensagem de inicialização e log:
+    print(f"[INFO] Aponte a camera para o visor da maquininha ou QR Code...")
+    logger.info(f"Sistema PayAI iniciado - {LARGURA}x{ALTURA}")
+    speech_worker.start()
 
-            texto_status = mensagens_loading[indice_msg]
-            texto_status += f" | CAM:{camera_pronta} OCR:{ocr_pronto}"
+    # -- Thread de carregamento OCR --
+    threading.Thread(
+        target=carregar_ocr,
+        daemon=True
+    ).start()
 
-            texto_c(
-                draw,
-                texto_status,
-                LARGURA // 2,
-                255,
-                FONTES['pequena'],
-                CORES['TEXTO_SEC']
-            )
-            # -- Desenha a barra simples:
-            draw.rounded_rectangle(
-                [170, 305, 470, 317],
-                radius=5,
-                fill=CORES['CARD_BG']
-            )
-            # -- Atualiza o progresso suavemente --
-            alvo = 0.90
+    threading.Thread(
+        target=carregar_yolo,
+        daemon=True
+    ).start()
 
-            if camera_pronta and ocr_pronto:
-                alvo = 1.0
-            if progresso_loading < alvo:
-                progresso_loading += 0.025
-            progresso_loading = min(
-                progresso_loading,
-                alvo
-            )
-            largura = int(300 * progresso_loading)
-            draw.rounded_rectangle(
-                [170, 305, 170 + largura, 317],
-                radius=5,
-                fill=CORES['ACENTO']
-            )
+    threading.Thread(
+        target=_iniciar_camera_thread,
+        daemon=True
+    ).start()
 
-            # -- Aplica brilho suave e contínuo --
-            if largura > 80:
-                barra_x1 = 170
-                barra_x2 = 170 + largura
-                brilho_total = largura
-                brilho = (
-                    time.time() * 70
-                ) % brilho_total
-                shine_x = barra_x1 + brilho
-                brilho_largura = 28
+    # -- Loop principal --
+    _ocr_thread = OCRThread(fila_ocr, estatisticas)
+    _ocr_thread.start()
 
-                # -- Evita que o brilho ultrapasse a barra:
-                if shine_x < barra_x2:
-                    # -- Aplica fade perto da entrada:
-                    entrada = min(
-                        1.0,
-                        max(
-                            0,
-                            (shine_x - barra_x1) / 25
+    try:
+        while True:
+        # -- Splash screen --
+            if not camera_pronta or not ocr_pronto:
+                splash = np.zeros((ALTURA, LARGURA, 3), dtype=np.uint8)
+                splash[:] = CORES['BG']
+                img = cv2_para_pil(splash)
+                draw = ImageDraw.Draw(img)
+                texto_c(
+                    draw,
+                    "PAYAI",
+                    LARGURA // 2,
+                    165,
+                    FONTES['logo_pay'],
+                    CORES['ACENTO']
+                )
+                texto_c(
+                    draw,
+                    "Inicializando sistema...",
+                    LARGURA // 2,
+                    225,
+                    FONTES['corpo_b'],
+                    CORES['TEXTO_PRIM']
+                )
+                status = []
+                if not camera_pronta:
+                    status.append("Camera")
+                if not ocr_pronto:
+                    status.append("OCR")
+                mensagens_loading = [
+                    "Inicializando componentes",
+                    "Preparando sistema",
+                    "Carregando interface",
+                    "Verificando modulos",
+                    "Inicializando camera",
+                    "Preparando reconhecimento",
+                    "Otimizando OCR",
+                    "Configurando acessibilidade",
+                    "Preparando sistema de voz",
+                    "Carregando deteccao inteligente",
+                    "Verificando desempenho",
+                    "Sincronizando componentes",
+                    "Iniciando visao computacional",
+                    "Configurando analise inteligente",
+                    "Inicializando assistente visual",
+                    "Preparando leitura automatica",
+                    "Sincronizando reconhecimento",
+                    "Aplicando melhorias de desempenho",
+                    "Verificando integridade do sistema",
+                    "Otimizando inicializacao",
+                    "Preparando captura de imagem",
+                    "Ativando componentes principais",
+                    "Preparando ambiente de execucao",
+                ]
+                indice_msg = int(
+                    time.time() * 0.45
+                ) % len(mensagens_loading)
+
+                texto_status = mensagens_loading[indice_msg]
+                texto_status += f" | CAM:{camera_pronta} OCR:{ocr_pronto}"
+
+                texto_c(
+                    draw,
+                    texto_status,
+                    LARGURA // 2,
+                    255,
+                    FONTES['pequena'],
+                    CORES['TEXTO_SEC']
+                )
+                # -- Desenha a barra simples:
+                draw.rounded_rectangle(
+                    [170, 305, 470, 317],
+                    radius=5,
+                    fill=CORES['CARD_BG']
+                )
+                # -- Atualiza o progresso suavemente --
+                alvo = 0.90
+
+                if camera_pronta and ocr_pronto:
+                    alvo = 1.0
+                if progresso_loading < alvo:
+                    progresso_loading += 0.025
+                progresso_loading = min(
+                    progresso_loading,
+                    alvo
+                )
+                largura = int(300 * progresso_loading)
+                draw.rounded_rectangle(
+                    [170, 305, 170 + largura, 317],
+                    radius=5,
+                    fill=CORES['ACENTO']
+                )
+
+                # -- Aplica brilho suave e contínuo --
+                if largura > 80:
+                    barra_x1 = 170
+                    barra_x2 = 170 + largura
+                    brilho_total = largura
+                    brilho = (
+                        time.time() * 70
+                    ) % brilho_total
+                    shine_x = barra_x1 + brilho
+                    brilho_largura = 28
+
+                    # -- Evita que o brilho ultrapasse a barra:
+                    if shine_x < barra_x2:
+                        # -- Aplica fade perto da entrada:
+                        entrada = min(
+                            1.0,
+                            max(
+                                0,
+                                (shine_x - barra_x1) / 25
+                            )
                         )
-                    )
-                    # -- Aplica fade perto da saída:
-                    saida = min(
-                        1.0,
-                        max(
-                            0,
-                            (barra_x2 - shine_x) / 25
+                        # -- Aplica fade perto da saída:
+                        saida = min(
+                            1.0,
+                            max(
+                                0,
+                                (barra_x2 - shine_x) / 25
+                            )
                         )
-                    )
-                    intensidade = min(
-                        entrada,
-                        saida
-                    )
-                    branco = int(
-                        140 + (115 * intensidade)
-                    )
-                    draw.rounded_rectangle(
-                        [
-                            shine_x - 2,
-                            307,
-                            shine_x + brilho_largura,
-                            315
-                        ],
-                        radius=4,
-                        fill=(branco, branco, branco)
-                    )
-            splash = pil_para_cv2(img)
+                        intensidade = min(
+                            entrada,
+                            saida
+                        )
+                        branco = int(
+                            140 + (115 * intensidade)
+                        )
+                        draw.rounded_rectangle(
+                            [
+                                shine_x - 2,
+                                307,
+                                shine_x + brilho_largura,
+                                315
+                            ],
+                            radius=4,
+                            fill=(branco, branco, branco)
+                        )
+                splash = pil_para_cv2(img)
 
-            cv2.imshow(
-                "PayAI - Sistema Inteligente",
-                splash
-            )
+                cv2.imshow(
+                    "PayAI - Sistema Inteligente",
+                    splash
+                )
 
-            if cv2.waitKey(1) & 0xFF == 27:
-                logger.info("Encerrado pelo usuario durante a inicializacao")
+                if cv2.waitKey(1) & 0xFF == 27:
+                    logger.info("Encerrado pelo usuario durante a inicializacao")
+                    break
+                continue
+            # -- Câmera normal --
+            ret, frame = cap.read()
+
+            if not ret:
                 break
-            continue
-        # -- Câmera normal --
-        ret, frame = cap.read()
 
-        if not ret:
-            break
+            frame_count += 1
 
-        frame_count += 1
+            if frame_count % 10 == 0:
+                agora_fps = time.time()
+                fps_atual = 10 / (
+                    agora_fps - ultimo_fps_tempo
+                )
+                ultimo_fps_tempo = agora_fps
 
-        if frame_count % 10 == 0:
-            agora_fps = time.time()
-            fps_atual = 10 / (
-                agora_fps - ultimo_fps_tempo
-            )
-            ultimo_fps_tempo = agora_fps
+            agora = time.time()
+            atualizar_contornos()
+            with estado_lock:
+                modo_loop = modo_atual
+                idioma_loop = idioma_atual
 
-        agora = time.time()
-        atualizar_contornos()
+            if modo_loop in (MODOS['AUTO'], MODOS['VALORES']):
+                if (
+                    agora - ultimo_processamento > OCR_INTERVAL and
+                    frame_count % SKIP_FRAMES == 0
+                ):
+                    ultimo_processamento = agora
+                    try:
+                        fila_ocr.put_nowait(frame.copy())
+                    except Full:
+                        pass
 
-        if modo_atual in (MODOS['AUTO'], MODOS['VALORES']):
-            if (
-                agora - ultimo_processamento > OCR_INTERVAL and
-                frame_count % SKIP_FRAMES == 0
-            ):
-                ultimo_processamento = agora
-                try:
-                    fila_ocr.put_nowait(frame.copy())
-                except Full:
-                    pass
+            if modo_loop in (MODOS['AUTO'], MODOS['QRCODE']):
+                processar_qrcode(frame, estatisticas)
 
-        if modo_atual in (MODOS['AUTO'], MODOS['QRCODE']):
-            processar_qrcode(frame, estatisticas)
+            if modo_loop in (MODOS['AUTO'], MODOS['VALORES']):
+                if agora - ultimo_yolo_processamento > YOLO_INTERVAL:
+                    ultimo_yolo_processamento = agora
+                    processar_cedulas(frame)
 
-        if modo_atual in (MODOS['AUTO'], MODOS['VALORES']):
-            if agora - ultimo_yolo_processamento > YOLO_INTERVAL:
-                ultimo_yolo_processamento = agora
-                processar_cedulas(frame)
+            frame_final = desenhar_interface(frame, estatisticas, agora)
+            cv2.imshow("PayAI - Sistema Inteligente", frame_final)
 
-        frame_final = desenhar_interface(frame, estatisticas, agora)
-        cv2.imshow("PayAI - Sistema Inteligente", frame_final)
+            key = cv2.waitKey(1) & 0xFF
+            if key == 27:
+                logger.info("Encerrado pelo usuario")
+                break
+            elif key in (ord('v'), ord('V')):
+                with estado_lock:
+                    modo_atual = MODOS['VALORES']
+                    qrcode_anunciado = None
+                remover_contorno('QRCODE')
+                parar_fala_deteccao('QRCODE')
+                falar_texto("Modo valores ativado", idioma_loop, None)
+            elif key in (ord('q'), ord('Q')):
+                with estado_lock:
+                    modo_atual = MODOS['QRCODE']
+                    qrcode_anunciado = None
+                remover_contorno('VALOR')
+                parar_fala_deteccao('VALOR')
+                falar_texto("Modo QR Code ativado", idioma_loop, None)
+            elif key in (ord('a'), ord('A')):
+                with estado_lock:
+                    modo_atual = MODOS['AUTO']
+                    qrcode_anunciado = None
+                falar_texto("Modo automatico ativado", idioma_loop, None)
+            elif key in (ord('i'), ord('I')):
+                with estado_lock:
+                    if idioma_atual == IDIOMAS['PT_BR']:
+                        idioma_atual = IDIOMAS['ES_CO']
+                        idioma_novo = idioma_atual
+                        mensagem = 'Idioma español activado'
+                    else:
+                        idioma_atual = IDIOMAS['PT_BR']
+                        idioma_novo = idioma_atual
+                        mensagem = 'Idioma portugues ativado'
+                falar_texto(mensagem, idioma_novo, None)
+            elif key in (ord('s'), ord('S')):
+                nome = f"screenshot_{time.strftime('%Y%m%d_%H%M%S')}.png"
+                cv2.imwrite(nome, frame_final)
+                logger.info(f"Screenshot: {nome}")
+                falar_texto("Screenshot salvo", idioma_loop, None)
+            elif key in (ord('r'), ord('R')):
+                if ultima_fala:
+                    falar_texto(ultima_fala, idioma_loop, None)
 
-        key = cv2.waitKey(1) & 0xFF
-        if key == 27:
-            logger.info("Encerrado pelo usuario")
-            break
-        elif key in (ord('v'), ord('V')):
-            modo_atual = MODOS['VALORES']
-            remover_contorno('QRCODE')
-            parar_fala_deteccao('QRCODE')
-            qrcode_anunciado = None
-            falar_texto("Modo valores ativado", idioma_atual, None)
-        elif key in (ord('q'), ord('Q')):
-            modo_atual = MODOS['QRCODE']
-            remover_contorno('VALOR')
+    except Exception as e:
+        logger.error(f"Erro critico: {e}")
+    finally:
+        try:
             parar_fala_deteccao('VALOR')
-            qrcode_anunciado = None
-            falar_texto("Modo QR Code ativado", idioma_atual, None)
-        elif key in (ord('a'), ord('A')):
-            modo_atual = MODOS['AUTO']
-            qrcode_anunciado = None
-            falar_texto("Modo automatico ativado", idioma_atual, None)
-        elif key in (ord('i'), ord('I')):
-            if idioma_atual == IDIOMAS['PT_BR']:
-                idioma_atual = IDIOMAS['ES_CO']
-                falar_texto('Idioma español activado', idioma_atual, None)
-            else:
-                idioma_atual = IDIOMAS['PT_BR']
-                falar_texto('Idioma portugues ativado', idioma_atual, None)
-        elif key in (ord('s'), ord('S')):
-            nome = f"screenshot_{time.strftime('%Y%m%d_%H%M%S')}.png"
-            cv2.imwrite(nome, frame_final)
-            logger.info(f"Screenshot: {nome}")
-            falar_texto("Screenshot salvo", idioma_atual, None)
-        elif key in (ord('r'), ord('R')):
-            if ultima_fala:
-                falar_texto(ultima_fala, idioma_atual, None)
-
-except Exception as e:
-    logger.error(f"Erro critico: {e}")
-finally:
-    try:
-        parar_fala_deteccao('VALOR')
-        parar_fala_deteccao('QRCODE')
-    except Exception:
-        pass
-    if cap:
-        try:
-            cap.release()
+            parar_fala_deteccao('QRCODE')
         except Exception:
             pass
-    else:
-        # -- Libera a câmera gerenciada pela classe:
-        try:
-            _camera.release()
-        except Exception:
-            pass
+        speech_worker.stop()
+        if cap:
+            try:
+                cap.release()
+            except Exception:
+                pass
+        else:
+            # -- Libera a câmera gerenciada pela classe:
+            try:
+                _camera.release()
+            except Exception:
+                pass
 
-    cv2.destroyAllWindows()
-    logger.info(f"Estatisticas finais: {estatisticas.obter_estatisticas()}")
-    logger.info("Sistema PayAI finalizado")
-    
-    # -- Para a thread OCR:
-    try:
-        _ocr_thread.stop()
-    except Exception:
-        pass
+        cv2.destroyAllWindows()
+        logger.info(f"Estatisticas finais: {estatisticas.obter_estatisticas()}")
+        logger.info("Sistema PayAI finalizado")
+
+        # -- Para a thread OCR:
+        if _ocr_thread is not None:
+            try:
+                _ocr_thread.stop()
+            except Exception:
+                pass
+
+
+if __name__ == "__main__":
+    main()
