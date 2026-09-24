@@ -12,10 +12,15 @@ O **PayAI** é um sistema de acessibilidade em Python para leitura assistida de 
 
 ## Estado atual da arquitetura
 
-- Arquivo principal único: `PayAI.py` (**arquitetura ainda monolítica**).
-- Entrypoint atual:
-  - `def main()` em `PayAI.py`
-  - `if __name__ == "__main__": main()`
+- Arquitetura modular inicial concluída em `payai/`:
+  - `payai/main.py` (orquestração do runtime)
+  - `payai/config.py` (constantes, logging, fontes)
+  - `payai/detectors.py` (câmera, OCR/QR/YOLO e parser monetário)
+  - `payai/speech.py` (normalização de fala, TTS e worker)
+  - `payai/rendering.py` (desenho de interface)
+- Entrypoint atual compatível:
+  - `PayAI.py` como shim para `payai.main`
+  - `if __name__ == "__main__": main()` permanece funcional
 - Código de preparação de dataset/treino YOLO separado:
   - `prepare_yolo_dataset.py`
   - `train_banknotes.py`
@@ -93,12 +98,12 @@ Sincronização atual:
 - `Estatisticas` possui lock interno (`self._lock`) para contadores.
 
 Observações:
-- A concorrência foi melhorada, mas o projeto ainda é global-state centric e monolítico.
+- A concorrência foi melhorada, mas o projeto ainda é global-state centric.
 - YOLO e QR ainda rodam no thread principal.
 
 ## SpeechWorker e ciclo de vida
 
-Implementação atual (`class SpeechWorker` em `PayAI.py`):
+Implementação atual (`class SpeechWorker` em `payai/speech.py`, integrada via `payai/main.py`):
 - fila interna `Queue(maxsize=8)`;
 - `enqueue()` inicia worker sob demanda e tenta enfileirar sem bloqueio;
 - se fila cheia, remove um item antigo e tenta inserir o novo;
@@ -148,7 +153,7 @@ Pasta `tests/`:
 ## Comandos de validação usados no projeto
 
 - Compilação sintática:
-  - `python -m py_compile PayAI.py tests\test_money_parser.py tests\test_speech_formatting.py tests\test_speech_worker.py`
+  - `python -m py_compile PayAI.py payai\main.py payai\config.py payai\detectors.py payai\rendering.py payai\speech.py tests\test_money_parser.py tests\test_speech_formatting.py tests\test_speech_worker.py`
 - Testes:
   - `python -m unittest discover -s tests -p "test_*.py" -v`
 - Verificação de import sem side effects:
@@ -170,9 +175,9 @@ Fonte de planejamento ativa:
 - `C:\Users\GAMER\.copilot\session-state\4dfde080-6c8e-47c3-9d36-582b9b92b5b9\plan.md`
 
 Status registrado:
-- **Concluídas**: `C2`, `A3`, `A2`, `C4`, `C3`
-- **Pendentes**: `A4`, `A1` (profiling + migração assíncrona), `A5` (profiling + otimizações OCR)
-- Próxima etapa pronta para execução (ready): `A4` (modularização inicial)
+- **Concluídas**: `C2`, `A3`, `A2`, `C4`, `C3`, `A4`
+- **Pendentes**: `A1` (profiling + migração assíncrona), `A5` (profiling + otimizações OCR)
+- Próxima etapa pronta para execução (ready): `A1` (profiling + migração assíncrona)
 
 ## Restrições importantes para futuras refatorações
 

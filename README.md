@@ -2,7 +2,9 @@
 
 Sistema inteligente de acessibilidade para leitura de valores e QR Codes em maquininhas de cartão.
 
-O projeto principal está num único arquivo: [PayAI.py](PayAI.py). Ele usa visão computacional, OCR e síntese de voz para fornecer feedback sonoro sobre valores e QR Codes detectados pela câmera.
+O entrypoint permanece em [PayAI.py](PayAI.py), mas a arquitetura foi modularizada
+no pacote [`payai/`](payai). O sistema usa visão computacional, OCR e síntese de
+voz para fornecer feedback sonoro sobre valores e QR Codes detectados pela câmera.
 
 ---
 
@@ -89,6 +91,17 @@ Observações:
 ```text
 .
 ├── PayAI.py
+├── payai
+│   ├── __init__.py
+│   ├── main.py
+│   ├── config.py
+│   ├── detectors.py
+│   ├── rendering.py
+│   └── speech.py
+├── tests
+│   ├── test_money_parser.py
+│   ├── test_speech_formatting.py
+│   └── test_speech_worker.py
 ├── prepare_yolo_dataset.py
 ├── train_banknotes.py
 ├── requirements-yolo.txt
