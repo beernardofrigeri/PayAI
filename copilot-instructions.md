@@ -6,7 +6,6 @@ O **PayAI** é um sistema de acessibilidade em Python para leitura assistida de 
 - captura de câmera (OpenCV),
 - leitura de valores monetários por OCR (EasyOCR),
 - detecção de QR Code (OpenCV QRCodeDetector),
-- detecção de cédulas por YOLO (Ultralytics),
 - feedback de voz (Edge TTS + pygame),
 - interface visual em tempo real (OpenCV + PIL).
 
@@ -15,15 +14,12 @@ O **PayAI** é um sistema de acessibilidade em Python para leitura assistida de 
 - Arquitetura modular inicial concluída em `payai/`:
   - `payai/main.py` (orquestração do runtime)
   - `payai/config.py` (constantes, logging, fontes)
-  - `payai/detectors.py` (câmera, OCR/QR/YOLO e parser monetário)
+  - `payai/detectors.py` (câmera, OCR/QR e parser monetário)
   - `payai/speech.py` (normalização de fala, TTS e worker)
   - `payai/rendering.py` (desenho de interface)
 - Entrypoint atual compatível:
   - `PayAI.py` como shim para `payai.main`
   - `if __name__ == "__main__": main()` permanece funcional
-- Código de preparação de dataset/treino YOLO separado:
-  - `prepare_yolo_dataset.py`
-  - `train_banknotes.py`
 - Testes adicionados em `tests/` para parser monetário, formatação de fala e ciclo de vida básico do worker de fala.
 
 ## Fluxo principal de execução (runtime)
@@ -31,7 +27,6 @@ O **PayAI** é um sistema de acessibilidade em Python para leitura assistida de 
 1. `main()` inicia:
    - `speech_worker.start()`
    - thread daemon de `carregar_ocr`
-   - thread daemon de `carregar_yolo`
    - thread daemon de inicialização de câmera
    - `OCRThread` dedicada para OCR de valores
 2. Enquanto `camera_pronta` ou `ocr_pronto` não estiverem prontos, exibe splash de inicialização.
@@ -39,7 +34,6 @@ O **PayAI** é um sistema de acessibilidade em Python para leitura assistida de 
    - lê frame da câmera;
    - agenda OCR (via `fila_ocr`) conforme `OCR_INTERVAL` + `SKIP_FRAMES`;
    - processa QR Code no thread principal;
-   - processa YOLO no thread principal (sincrono);
    - desenha interface e contornos;
    - trata atalhos do teclado.
 4. Encerramento (`finally`):
@@ -52,29 +46,25 @@ O **PayAI** é um sistema de acessibilidade em Python para leitura assistida de 
 ## Estados e modos importantes
 
 - Modos (`MODOS`):
-  - `AUTO` (valores + QR + YOLO de cédulas)
+  - `AUTO` (valores + QR)
   - `VALORES`
   - `QRCODE`
 - Idiomas (`IDIOMAS`):
   - `PT_BR`
   - `ES_CO`
 - Estados globais relevantes:
-  - disponibilidade: `ocr_pronto`, `yolo_pronto`, `camera_pronta`
+  - disponibilidade: `ocr_pronto`, `camera_pronta`
   - execução: `modo_atual`, `idioma_atual`, `frame_count`, `fps_atual`
   - OCR/QR: `tempo_ocr`, `regioes_detectadas`, `qrcode_anunciado`, `ultimo_qrcode_visto`
   - deduplicação/cooldown: `valor_history`, `ultimos_detectados`
-  - overlays: `contornos_ativos`, `deteccoes_cedulas`
   - fala: `fala_deteccao_tipo`, `fala_deteccao_cancelamento`, `ultima_fala`
 
-## Integração entre câmera, OCR, YOLO, QR Code, TTS e interface
+## Integração entre câmera, OCR, QR Code, TTS e interface
 
 - **Câmera**: classe `Camera` encapsula `cv2.VideoCapture`.
 - **OCR de valores**:
   - loop principal envia `frame.copy()` para `fila_ocr` (`maxsize=1`);
   - `OCRThread` consome fila e chama `processar_valores`.
-- **YOLO cédulas**:
-  - carregado em `carregar_yolo`;
-  - inferência em `processar_cedulas` no loop principal, com `YOLO_INTERVAL`.
 - **QR Code**:
   - `processar_qrcode` chamado no loop principal (modo `AUTO`/`QRCODE`);
   - contorno/voz com anti-repetição por conteúdo e janela de perda (`QRCODE_PERDA_GRACA`).
@@ -87,10 +77,10 @@ O **PayAI** é um sistema de acessibilidade em Python para leitura assistida de 
 ## Concorrência, threads e estado compartilhado
 
 Threads/processamento concorrente atual:
-- thread principal: captura, UI, teclado, QR, YOLO.
+- thread principal: captura, UI, teclado e QR.
 - `OCRThread` (daemon): OCR de valores.
 - thread de `SpeechWorker` (não-daemon): consumo serial da fila de fala.
-- threads daemon de inicialização: OCR, YOLO, câmera.
+- threads daemon de inicialização: OCR e câmera.
 
 Sincronização atual:
 - `estado_lock = threading.RLock()` para estado compartilhado (contornos, idioma/modo, cooldowns, estado QR/fala e métricas OCR).
@@ -99,7 +89,7 @@ Sincronização atual:
 
 Observações:
 - A concorrência foi melhorada, mas o projeto ainda é global-state centric.
-- YOLO e QR ainda rodam no thread principal.
+- QR ainda roda no thread principal.
 
 ## SpeechWorker e ciclo de vida
 
@@ -191,6 +181,5 @@ Status registrado:
 ## NÃO CONFIRMADO
 
 - Presença de `plan.md` **na raiz do repositório**: **NÃO CONFIRMADO** (não existe atualmente no root; o plano ativo está no diretório de sessão).
-- Ganho real de performance de mover YOLO para worker assíncrono: **NÃO CONFIRMADO** (falta profiling comparativo no estado atual).
 - Ganho real de otimizações OCR (ROI/cadência/histerese): **NÃO CONFIRMADO** (falta baseline de métricas e teste em hardware real).
 - Comportamento com falhas prolongadas de câmera/OCR no boot (timeout/fallback): **NÃO CONFIRMADO** (fluxo de splash indefinido ainda depende de validação funcional em campo).

@@ -20,7 +20,6 @@ from payai.config import (
     QRCODE_PERDA_GRACA,
     SKIP_FRAMES,
     VALOR_HISTORY_BUFFER,
-    YOLO_INTERVAL,
     carregar_fontes,
     logger,
 )
@@ -28,8 +27,6 @@ from payai.detectors import (
     Camera,
     buscar_valor_global as _buscar_valor_global_impl,
     carregar_ocr as _carregar_ocr_impl,
-    carregar_yolo as _carregar_yolo_impl,
-    detectar_cedulas,
     detectar_qrcode,
     filtrar_valor_monetario as _filtrar_valor_monetario_impl,
     validar_valor as _validar_valor_impl,
@@ -62,8 +59,6 @@ FONTES = carregar_fontes()
 # -- OCR / voz do sistema --
 reader = None
 ocr_pronto = False
-yolo_modelo = None
-yolo_pronto = False
 
 # -- Câmera --
 cap = None
@@ -76,14 +71,12 @@ ultimo_tempo = time.time()
 texto_anterior = ''
 frame_count = 0
 ultimo_processamento = 0
-ultimo_yolo_processamento = 0
 contornos_ativos = []
 ultimos_detectados = {}
 fps_atual = 0
 ultimo_fps_tempo = time.time()
 tempo_ocr = 0
 regioes_detectadas = 0
-deteccoes_cedulas = []
 fila_ocr = Queue(maxsize=OCR_QUEUE_SIZE)
 fala_lock = threading.Lock()
 estado_lock = threading.RLock()
@@ -106,34 +99,6 @@ def carregar_ocr():
     global reader, ocr_pronto
     reader = _carregar_ocr_impl()
     ocr_pronto = reader is not None
-
-
-def carregar_yolo():
-    global yolo_modelo, yolo_pronto
-    yolo_modelo = _carregar_yolo_impl()
-    yolo_pronto = yolo_modelo is not None
-
-
-def processar_cedulas(frame):
-    global deteccoes_cedulas, contornos_ativos
-    if not yolo_pronto or yolo_modelo is None:
-        return
-    try:
-        deteccoes = detectar_cedulas(frame, yolo_modelo)
-        with estado_lock:
-            deteccoes_cedulas = deteccoes
-            contornos_ativos = [
-                item for item in contornos_ativos if item[3] != 'CEDULA'
-            ]
-            for confianca, nome, topo_esq, baixo_dir in deteccoes:
-                contornos_ativos.append((
-                    (topo_esq, baixo_dir),
-                    f'Cedula R$ {nome} ({confianca:.0%})',
-                    time.time(),
-                    'CEDULA',
-                ))
-    except Exception as erro:
-        logger.error(f'Erro na detecção YOLO: {erro}')
 
 
 class OCRThread(threading.Thread):
@@ -444,7 +409,6 @@ def main():
     global fps_atual
     global ultimo_fps_tempo
     global ultimo_processamento
-    global ultimo_yolo_processamento
     global modo_atual
     global idioma_atual
     global qrcode_anunciado
@@ -461,11 +425,6 @@ def main():
     # -- Thread de carregamento OCR --
     threading.Thread(
         target=carregar_ocr,
-        daemon=True,
-    ).start()
-
-    threading.Thread(
-        target=carregar_yolo,
         daemon=True,
     ).start()
 
@@ -657,11 +616,6 @@ def main():
 
             if modo_loop in (MODOS['AUTO'], MODOS['QRCODE']):
                 processar_qrcode(frame, estatisticas)
-
-            if modo_loop in (MODOS['AUTO'], MODOS['VALORES']):
-                if agora - ultimo_yolo_processamento > YOLO_INTERVAL:
-                    ultimo_yolo_processamento = agora
-                    processar_cedulas(frame)
 
             frame_final = desenhar_interface(frame, estatisticas, agora)
             cv2.imshow('PayAI - Sistema Inteligente', frame_final)

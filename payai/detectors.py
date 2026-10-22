@@ -1,11 +1,9 @@
-import os
 import re
 
 import cv2
 import easyocr
-from ultralytics import YOLO
 
-from payai.config import OCR_USAR_GPU, YOLO_CONFIANCA_MINIMA, YOLO_MODELO, logger
+from payai.config import OCR_USAR_GPU, logger
 
 
 class Camera:
@@ -58,39 +56,6 @@ def carregar_ocr(usar_gpu=OCR_USAR_GPU):
         logger.error(f'Erro carregando OCR: {erro}')
         print(erro)
         return None
-
-
-def carregar_yolo(caminho_modelo=YOLO_MODELO):
-    if not os.path.exists(caminho_modelo):
-        logger.warning('Modelo YOLO não encontrado: %s', caminho_modelo)
-        return None
-    try:
-        logger.info('Carregando modelo YOLO de cédulas...')
-        yolo_modelo = YOLO(caminho_modelo)
-        logger.info('Modelo YOLO de cédulas pronto.')
-        return yolo_modelo
-    except Exception as erro:
-        logger.error(f'Erro carregando modelo YOLO: {erro}')
-        return None
-
-
-def detectar_cedulas(frame, yolo_modelo, confianca_minima=YOLO_CONFIANCA_MINIMA):
-    if yolo_modelo is None:
-        return []
-    resultado = yolo_modelo.predict(
-        source=frame,
-        conf=confianca_minima,
-        verbose=False,
-        device='cpu',
-    )[0]
-    deteccoes = []
-    for caixa in resultado.boxes:
-        confianca = float(caixa.conf[0])
-        classe = int(caixa.cls[0])
-        nome = resultado.names[classe]
-        x1, y1, x2, y2 = caixa.xyxy[0].int().tolist()
-        deteccoes.append((confianca, nome, (x1, y1), (x2, y2)))
-    return deteccoes
 
 
 def detectar_qrcode(frame, detector):

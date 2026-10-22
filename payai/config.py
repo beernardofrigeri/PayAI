@@ -20,15 +20,6 @@ CONTORNO_TEMPO_VIDA = 0.8
 OCR_QUEUE_SIZE = 1
 VALOR_HISTORY_BUFFER = 5
 OCR_USAR_GPU = os.environ.get('PAYAI_USAR_GPU', '0') == '1'
-YOLO_INTERVAL = 0.5
-YOLO_CONFIANCA_MINIMA = 0.01
-YOLO_MODELO = os.path.join(
-    BASE_DIR,
-    'runs',
-    'banknotes-3',
-    'weights',
-    'best.pt',
-)
 QRCODE_PERDA_GRACA = 1.5
 
 # Obs. sobre a função acima:
@@ -113,4 +104,3 @@ def carregar_fontes():
                 'hotlabel',
             ]
         }
-
