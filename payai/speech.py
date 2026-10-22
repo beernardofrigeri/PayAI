@@ -7,6 +7,7 @@ from queue import Empty, Full, Queue
 
 import edge_tts
 import pygame
+import pyttsx3
 
 from payai.config import IDIOMAS, logger
 
@@ -139,15 +140,16 @@ def preparar_texto_fala(texto, idioma):
 
 
 async def falar_edge(texto, voz='es-CO-GonzaloNeural', cancelar_evento=None):
-    if not pygame.mixer.get_init():
-        pygame.mixer.init()
-    with tempfile.NamedTemporaryFile(delete=False, suffix='.mp3') as fp:
-        caminho = fp.name
-    communicate = edge_tts.Communicate(texto, voz)
+    caminho = None
     try:
+        with tempfile.NamedTemporaryFile(delete=False, suffix='.mp3') as fp:
+            caminho = fp.name
+        communicate = edge_tts.Communicate(texto, voz)
         await communicate.save(caminho)
         if cancelar_evento and cancelar_evento.is_set():
             return
+        if not pygame.mixer.get_init():
+            pygame.mixer.init()
         pygame.mixer.music.load(caminho)
         pygame.mixer.music.play()
 
@@ -157,12 +159,23 @@ async def falar_edge(texto, voz='es-CO-GonzaloNeural', cancelar_evento=None):
                 pygame.mixer.music.stop()
                 break
             await asyncio.sleep(0.05)
+    except Exception as erro:
+        if cancelar_evento and cancelar_evento.is_set():
+            return
+        logger.warning('Edge TTS indisponível; usando voz local: %s', erro)
+        engine = pyttsx3.init()
+        try:
+            engine.say(texto)
+            engine.runAndWait()
+        finally:
+            engine.stop()
     finally:
         try:
-            pygame.mixer.music.unload()
+            if pygame.mixer.get_init():
+                pygame.mixer.music.unload()
         except pygame.error:
             pass
-        if os.path.exists(caminho):
+        if caminho and os.path.exists(caminho):
             try:
                 os.remove(caminho)
             except OSError as erro:
@@ -282,4 +295,3 @@ class SpeechWorker:
                     pygame.mixer.quit()
             except pygame.error:
                 pass
-
