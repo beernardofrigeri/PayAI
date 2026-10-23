@@ -60,7 +60,10 @@ logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(levelname)s - %(message)s',
     handlers=[
-        logging.FileHandler('payai.log', encoding='utf-8'),
+        logging.FileHandler(
+            os.path.join(BASE_DIR, 'documentos', 'payai.log'),
+            encoding='utf-8',
+        ),
         logging.StreamHandler(),
     ],
 )
