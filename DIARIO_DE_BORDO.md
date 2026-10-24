@@ -1,218 +1,82 @@
 # Diário de bordo
 
-Anotações elaboradas a partir dos 32 commits do repositório no GitHub desde
-18 de novembro de 2025. As datas abaixo consideram o horário local dos commits
-(UTC−03:00); os registros são agrupados por dia.
+Anotações elaboradas a partir dos commits do repositório no GitHub desde 18
+de novembro de 2025 até 23 de outubro de 2026. As datas abaixo consideram o
+horário local dos commits (UTC−03:00); os registros são agrupados em um
+resumo geral de todo o período.
 
-## 8 de maio de 2026
+## Resumo geral do período (18 de novembro de 2025 a 23 de outubro de 2026)
 
-Data: 8 de maio de 2026  
+Data: 18 de novembro de 2025 a 23 de outubro de 2026  
 Local: Casa  
 Intregrantes: Bernardo (só eu mexi nisso)
 
-Atividades realizadas: Reestruturei o PayAI, reorganizando o código principal
-para avançar na evolução do sistema.
+Atividades realizadas: Ao longo desse período o PayAI nasceu e amadureceu até
+a versão apresentada na XV Mostra IFTec. No começo, reestruturei o código
+inicial, publiquei a versão 1.0 (com README e `.gitignore` organizados) e
+implementei a síntese de voz com Edge-TTS, além de uma tela de abertura com
+carregamento progressivo e, depois, uma inicialização paralela do sistema
+para deixá-lo mais rápido.
+
+O núcleo do projeto — leitura de valores monetários por OCR e detecção de QR
+Codes — passou por várias rodadas de ajuste: corrigi exceções na detecção de
+QR Codes, tornei a leitura de valores mais estável com validação robusta,
+priorização de formatos monetários e histórico de detecções, além de criar
+uma busca alternativa global para quando a detecção principal falhava.
+Corrigi também o feedback visual dos pagamentos e problemas recorrentes de
+áudio e de leitura de QR Code.
+
+Em paralelo, reorganizei várias vezes a arquitetura do código: separei
+responsabilidades em módulos (câmera, OCR, voz, desenho, configuração,
+logging e utilitários), cheguei a reverter para uma versão monolítica mais
+simples quando a modularização atrapalhou mais do que ajudou, e por fim
+consolidei tudo em uma arquitetura modular definitiva dentro do pacote
+`payai`. Também limpei o código com Ruff, removi arquivos e testes que não
+eram mais usados, e escrevi testes automatizados para os pontos mais
+críticos (parser de valores, formatação de fala, detecção de QR Code e
+leitura de QR Codes Pix).
+
+A reta final, às vésperas do fechamento das notas na XV Mostra IFTec, foi
+dedicada a corrigir os três bugs mais críticos encontrados em uso real: o
+corte de áudio na síntese de voz durante a apresentação ao vivo (biblioteca
+desatualizada + cancelamento precoce da fala), a falha total na leitura de QR
+Codes pequenos, distantes ou desfocados (resolvida com um segundo detector e
+nitidez de imagem), e a leitura de QR Codes Pix, que agora anuncia por voz o
+valor cobrado e o nome do recebedor sem nunca revelar a chave Pix.
 
 Ass: Bernardo Girardi Frigeri
 
-## 12 de maio de 2026
+## 🏆 Conquistas em feiras científicas
 
-Data: 12 de maio de 2026  
-Local: Casa  
-Intregrantes: Bernardo (só eu mexi nisso)
+> Registros bônus pra não esquecer das conquistas do projeto. Preencha as
+> datas, a cidade e os nomes da equipe, e reposicione cada bloco na ordem
+> cronológica certa ao passar a limpo no diário físico.
 
-Atividades realizadas: Publiquei a versão 1.0 do PayAI, organizei a estrutura
-do projeto e aprimorei o `.gitignore`. Também revisei o README para explicar
-melhor o sistema.
+### FENECIT 2025
 
-Ass: Bernardo Girardi Frigeri
+Data: [preencher]  
+Local: [preencher cidade]  
+Intregrantes: Bernardo e equipe ([preencher nomes dos colegas])
 
-## 14 de maio de 2026
-
-Data: 14 de maio de 2026  
-Local: Casa  
-Intregrantes: Bernardo (só eu mexi nisso)
-
-Atividades realizadas: Iniciei o uso do Edge-TTS para a síntese de voz,
-atualizei as dependências e reestruturei a fala da inteligência artificial.
+Atividades realizadas: Levamos o PayAI pra FENECIT 2025, onde fomos avaliados
+por 3 avaliadores ao mesmo tempo (e, surpreendentemente, sobrevivemos 😄).
+Resultado: 2° lugar na categoria Ciências Sociais e Aplicadas entre todos os
+projetos da FENECIT, posição dividida com outros projetos — e de brinde ainda
+garantimos credencial pra representar o Brasil na MILSET AMLAT 2026, em
+Medellín, Colômbia. Bora empacotar as malas! 🇨🇴
 
 Ass: Bernardo Girardi Frigeri
 
-## 18 de maio de 2026
+### II Mostra Científica — Senac São Leopoldo
 
-Data: 18 de maio de 2026  
-Local: Casa  
-Intregrantes: Bernardo (só eu mexi nisso)
+Data: [preencher]  
+Local: Senac São Leopoldo, RS  
+Intregrantes: Bernardo e equipe ([preencher nomes dos colegas])
 
-Atividades realizadas: Reorganizei e repaginei o sistema, removendo linhas
-desnecessárias, um teste de voz e um arquivo de áudio que não eram mais
-necessários.
-
-Ass: Bernardo Girardi Frigeri
-
-## 20 de maio de 2026
-
-Data: 20 de maio de 2026  
-Local: Casa  
-Intregrantes: Bernardo (só eu mexi nisso)
-
-Atividades realizadas: Implementei uma tela de abertura (splash screen) com
-carregamento progressivo para apresentar a inicialização do sistema.
-
-Ass: Bernardo Girardi Frigeri
-
-## 21 de maio de 2026
-
-Data: 21 de maio de 2026  
-Local: Casa  
-Intregrantes: Bernardo (só eu mexi nisso)
-
-Atividades realizadas: Aprimorei a validação e a captação de texto pelo OCR,
-corrigi exceções na detecção de QR Codes e a sincronização da fila de OCR.
-Também implementei uma tela de carregamento e a inicialização paralela do
-sistema.
-
-Ass: Bernardo Girardi Frigeri
-
-## 27 de maio de 2026
-
-Data: 27 de maio de 2026  
-Local: Casa  
-Intregrantes: Bernardo (só eu mexi nisso)
-
-Atividades realizadas: Otimizei o código do sistema, retirando linhas que não
-eram necessárias.
-
-Ass: Bernardo Girardi Frigeri
-
-## 28 de maio de 2026
-
-Data: 28 de maio de 2026  
-Local: Casa  
-Intregrantes: Bernardo (só eu mexi nisso)
-
-Atividades realizadas: Iniciei a preparação do código para separar suas
-responsabilidades e adicionei OCR em tempo real, leitura de valores monetários,
-detecção de QR Codes e uma sobreposição visual. Também limpei e padronizei o
-código com Ruff.
-
-Ass: Bernardo Girardi Frigeri
-
-## 29 de maio de 2026
-
-Data: 29 de maio de 2026  
-Local: Casa  
-Intregrantes: Bernardo (só eu mexi nisso)
-
-Atividades realizadas: Atualizei os arquivos Python e as configurações do
-PayAI, dando continuidade aos ajustes da versão 1.0.
-
-Ass: Bernardo Girardi Frigeri
-
-## 11 de junho de 2026
-
-Data: 11 de junho de 2026  
-Local: Casa  
-Intregrantes: Bernardo (só eu mexi nisso)
-
-Atividades realizadas: Reorganizei as variáveis globais e removi redundâncias
-das configurações. Em seguida, modularizei o projeto, criei o ponto de entrada
-`main.py` e separei funcionalidades em módulos para câmera, OCR, voz, desenho,
-configuração, logging e utilitários. Atualizei também as instruções de execução
-no README.
-
-Ass: Bernardo Girardi Frigeri
-
-## 25 de junho de 2026
-
-Data: 25 de junho de 2026  
-Local: Casa  
-Intregrantes: Bernardo (só eu mexi nisso)
-
-Atividades realizadas: Retornei o sistema a uma versão funcional concentrada
-no arquivo principal, removendo a estrutura modular criada anteriormente.
-
-Ass: Bernardo Girardi Frigeri
-
-## 2 de julho de 2026
-
-Data: 2 de julho de 2026  
-Local: Casa  
-Intregrantes: Bernardo (só eu mexi nisso)
-
-Atividades realizadas: Corrigi os filtros do OCR para a leitura de valores e
-implementei uma busca alternativa global quando a detecção principal não
-encontra o valor.
-
-Ass: Bernardo Girardi Frigeri
-
-## 13 de julho de 2026
-
-Data: 13 de julho de 2026  
-Local: Casa  
-Intregrantes: Bernardo (só eu mexi nisso)
-
-Atividades realizadas: Tornei a leitura de valores pelo OCR mais estável, com
-validação mais robusta, priorização de formatos monetários e uso do histórico
-de detecções.
-
-Ass: Bernardo Girardi Frigeri
-
-## 13 de agosto de 2026
-
-Data: 13 de agosto de 2026  
-Local: Casa  
-Intregrantes: Bernardo (só eu mexi nisso)
-
-Atividades realizadas: Corrigi a leitura e o feedback visual dos pagamentos.
-Também revisei o README para explicar melhor o funcionamento do código.
-
-Ass: Bernardo Girardi Frigeri
-
-## 19 de agosto de 2026
-
-Data: 19 de agosto de 2026  
-Local: Casa  
-Intregrantes: Bernardo (só eu mexi nisso)
-
-Atividades realizadas: Corrigi problemas relacionados ao áudio e à detecção
-de QR Codes no PayAI.
-
-Ass: Bernardo Girardi Frigeri
-
-## 21 de agosto de 2026
-
-Data: 21 de agosto de 2026  
-Local: Casa  
-Intregrantes: Bernardo (só eu mexi nisso)
-
-Atividades realizadas: Melhorei os comentários e a clareza do código,
-removendo linhas desnecessárias e adicionando fontes para a interface. Também
-retirei arquivos de backup que não eram mais necessários.
-
-Ass: Bernardo Girardi Frigeri
-
-## 16 de setembro de 2026
-
-Data: 16 de setembro de 2026  
-Local: Casa  
-Intregrantes: Bernardo (só eu mexi nisso)
-
-Atividades realizadas: Refatorei o ponto de entrada do PayAI e corrigi
-problemas no parser de valores e na formatação e execução da fala. Adicionei
-testes para essas funcionalidades e criei instruções persistentes para o
-projeto.
-
-Ass: Bernardo Girardi Frigeri
-
-## 23 de setembro de 2026
-
-Data: 23 de setembro de 2026  
-Local: Casa  
-Intregrantes: Bernardo (só eu mexi nisso)
-
-Atividades realizadas: Modularizei a arquitetura do PayAI, organizando a
-configuração, os detectores, a renderização, a fala e a lógica principal em
-módulos do pacote `payai`. Atualizei também o README e as instruções do projeto.
+Atividades realizadas: Depois do tamanho da FENECIT, encaramos uma mostra
+mais de bairro, mas igualmente importante: a II Mostra Científica do Senac
+São Leopoldo. O PayAI brilhou de novo e trouxemos pra casa o 1° lugar em uma
+das áreas de competência avaliadas — prova de que o projeto convence tanto em
+palco grande quanto em feira local.
 
 Ass: Bernardo Girardi Frigeri
