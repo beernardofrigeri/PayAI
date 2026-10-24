@@ -39,6 +39,35 @@ class SpeechFormattingTests(unittest.TestCase):
         )
         self.assertEqual(saida, "quinze reais e trinta centavos")
 
+    def test_portuguese_composed_sentence_keeps_surrounding_text(self):
+        saida = PayAI.preparar_texto_fala(
+            "QR Code Pix detectado. Para Padaria do Ze. Cobranca de 42 reais e 50 centavos.",
+            PayAI.IDIOMAS['PT_BR'],
+        )
+        self.assertEqual(
+            saida,
+            "QR Code Pix detectado. Para Padaria do Ze. "
+            "Cobranca de quarenta e dois reais e cinquenta centavos.",
+        )
+
+    def test_spanish_composed_sentence_translates_prefix_and_keeps_name(self):
+        saida = PayAI.preparar_texto_fala(
+            "QR Code Pix detectado. Para Padaria do Ze. Cobranca de 42 reais e 50 centavos.",
+            PayAI.IDIOMAS['ES_CO'],
+        )
+        self.assertEqual(
+            saida,
+            "Código QR Pix detectado. Para Padaria do Ze. "
+            "Cobro de cuarenta y dos pesos colombianos y cincuenta centavos.",
+        )
+
+    def test_spanish_pix_without_value_is_translated(self):
+        saida = PayAI.preparar_texto_fala(
+            "QR Code Pix detectado. Sem valor definido.",
+            PayAI.IDIOMAS['ES_CO'],
+        )
+        self.assertEqual(saida, "Código QR Pix detectado. Sin valor definido.")
+
 
 if __name__ == "__main__":
     unittest.main()

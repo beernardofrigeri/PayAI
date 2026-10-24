@@ -29,6 +29,7 @@ from payai.detectors import (
     carregar_ocr as _carregar_ocr_impl,
     detectar_qrcode,
     filtrar_valor_monetario as _filtrar_valor_monetario_impl,
+    interpretar_qrcode_pix,
     validar_valor as _validar_valor_impl,
 )
 from payai.rendering import (
@@ -321,11 +322,33 @@ def processar_qrcode(frame, estat):
         if anunciar:
             qrcode_anunciado = data
     if anunciar:
-        logger.info('QR Code detectado (%d caracteres).', len(data))
-        estat.registrar_deteccao('QRCODE')
         with estado_lock:
             idioma = idioma_atual
-        iniciar_fala_deteccao('QR Code detectado', idioma, 'QRCODE')
+
+        # -- Se for um QR Pix (BR Code), extrai e anuncia só o que é seguro:
+        # valor cobrado e nome do recebedor. A chave Pix nunca é lida/exibida:
+        info_pix = interpretar_qrcode_pix(data)
+        if info_pix['eh_pix']:
+            partes_log = ['QR Code Pix detectado.']
+            partes_fala = ['QR Code Pix detectado.']
+            if info_pix['nome_recebedor']:
+                partes_log.append(f"Recebedor: {info_pix['nome_recebedor']}.")
+                partes_fala.append(f"Para {info_pix['nome_recebedor']}.")
+            if info_pix['valor']:
+                valor_falado = formatar_fala(info_pix['valor'], idioma)
+                partes_log.append(f'Valor: {valor_falado}.')
+                partes_fala.append(f'Cobranca de {valor_falado}.')
+            else:
+                partes_log.append('Sem valor definido.')
+                partes_fala.append('Sem valor definido.')
+            logger.info(' '.join(partes_log))
+            texto_fala = ' '.join(partes_fala)
+        else:
+            logger.info('QR Code detectado (%d caracteres).', len(data))
+            texto_fala = 'QR Code detectado'
+
+        estat.registrar_deteccao('QRCODE')
+        iniciar_fala_deteccao(texto_fala, idioma, 'QRCODE')
 
 
 def buscar_valor_global(frame):

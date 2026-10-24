@@ -85,36 +85,64 @@ def numero_es(n):
 
 def preparar_texto_fala(texto, idioma):
     tf = texto
-    texto_base = texto.lower()
-    mr = re.search(r'(\d+)\s*reais', texto_base)
-    mc = re.search(r'(\d+)\s*centavos', texto_base)
-    mp = re.search(r'(\d+)\s*pesos colombianos', texto_base)
 
-    # -- Português (Brasil):
+    # -- Português (Brasil): troca os números por extenso no lugar, mantendo
+    # o restante da frase intacto (permite compor frases, ex.: QR Pix com
+    # nome do recebedor e valor, em vez de descartar tudo ao redor):
     if idioma == IDIOMAS['PT_BR']:
-        if mr:
-            n = int(mr.group(1))
-            tf = f'{_num_pt(n)} reais'
-            if mc:
-                tf += f' e {_num_pt(int(mc.group(1)))} centavos'
-        elif mc:
-            tf = f'{_num_pt(int(mc.group(1)))} centavos'
+        tf = re.sub(
+            r'(\d+)\s*reais',
+            lambda m: f'{_num_pt(int(m.group(1)))} reais',
+            tf,
+            flags=re.IGNORECASE,
+        )
+        tf = re.sub(
+            r'(\d+)\s*centavos',
+            lambda m: f'{_num_pt(int(m.group(1)))} centavos',
+            tf,
+            flags=re.IGNORECASE,
+        )
 
     # -- Espanhol (Colômbia):
     elif idioma == IDIOMAS['ES_CO']:
-        if mp:
-            pesos = numero_es(int(mp.group(1)))
-            if mc:
-                centavos = numero_es(int(mc.group(1)))
-                tf = f'{pesos} pesos colombianos y {centavos} centavos'
-            else:
-                tf = f'{pesos} pesos colombianos'
-        elif mr:
-            # Compatibilidade para textos em PT em contexto de voz ES.
-            tf = f'{numero_es(int(mr.group(1)))} pesos colombianos'
-        elif mc:
-            tf = f'{numero_es(int(mc.group(1)))} centavos'
+        # Trata primeiro o par valor+centavos junto, trocando o conectivo
+        # "e" por "y" sem perder o restante do texto ao redor:
+        tf = re.sub(
+            r'(\d+)\s*(?:pesos colombianos|reais)\s*e\s*(\d+)\s*centavos',
+            lambda m: (
+                f'{numero_es(int(m.group(1)))} pesos colombianos '
+                f'y {numero_es(int(m.group(2)))} centavos'
+            ),
+            tf,
+            flags=re.IGNORECASE,
+        )
+        # -- Compatibilidade para valores isolados (sem centavos junto) ou
+        # para textos em PT em contexto de voz ES:
+        tf = re.sub(
+            r'(\d+)\s*(?:pesos colombianos|reais)',
+            lambda m: f'{numero_es(int(m.group(1)))} pesos colombianos',
+            tf,
+            flags=re.IGNORECASE,
+        )
+        tf = re.sub(
+            r'(\d+)\s*centavos',
+            lambda m: f'{numero_es(int(m.group(1)))} centavos',
+            tf,
+            flags=re.IGNORECASE,
+        )
 
+        tf = tf.replace(
+            'QR Code Pix detectado',
+            'Código QR Pix detectado',
+        )
+        tf = tf.replace(
+            'Cobranca de',
+            'Cobro de',
+        )
+        tf = tf.replace(
+            'Sem valor definido',
+            'Sin valor definido',
+        )
         tf = tf.replace(
             'QR Code detectado',
             'Código QR detectado',
