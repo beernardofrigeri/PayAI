@@ -56,16 +56,21 @@ CORES = {
 }
 
 # --Configuração de logging--
+# O arquivo guarda tudo (INFO+) para depuração posterior; o terminal só
+# mostra avisos e erros, para não poluir a tela durante o uso normal.
+_arquivo_handler = logging.FileHandler(
+    os.path.join(BASE_DIR, 'documentos', 'payai.log'),
+    encoding='utf-8',
+)
+_arquivo_handler.setLevel(logging.INFO)
+
+_terminal_handler = logging.StreamHandler()
+_terminal_handler.setLevel(logging.WARNING)
+
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.FileHandler(
-            os.path.join(BASE_DIR, 'documentos', 'payai.log'),
-            encoding='utf-8',
-        ),
-        logging.StreamHandler(),
-    ],
+    handlers=[_arquivo_handler, _terminal_handler],
 )
 logger = logging.getLogger('payai')
 

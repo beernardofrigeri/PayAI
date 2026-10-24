@@ -49,12 +49,12 @@ def carregar_ocr(usar_gpu=OCR_USAR_GPU):
             ['pt', 'es'],
             gpu=usar_gpu,
             download_enabled=True,
+            verbose=False,
         )
         logger.info('OCR carregado (%s).', 'GPU' if usar_gpu else 'CPU')
         return reader
     except Exception as erro:
         logger.error(f'Erro carregando OCR: {erro}')
-        print(erro)
         return None
 
 
