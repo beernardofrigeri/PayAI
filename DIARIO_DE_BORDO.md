@@ -11,38 +11,35 @@ Data: 18 de novembro de 2025 a 23 de outubro de 2026
 Local: Casa  
 Intregrantes: Bernardo (só eu mexi nisso)
 
-Atividades realizadas: Ao longo desse período o PayAI nasceu e amadureceu até
-a versão apresentada na XV Mostra IFTec. No começo, reestruturei o código
-inicial, publiquei a versão 1.0 (com README e `.gitignore` organizados) e
-implementei a síntese de voz com Edge-TTS, além de uma tela de abertura com
-carregamento progressivo e, depois, uma inicialização paralela do sistema
-para deixá-lo mais rápido.
+Atividades realizadas: Nesse período o PayAI saiu de um script único e meio
+bagunçado até a versão usada na XV Mostra IFTec. Primeiro reestruturei o
+código, publiquei a versão 1.0 com README e `.gitignore` organizados, e troquei
+a síntese de voz para o Edge-TTS. Depois vieram a splash screen com
+carregamento progressivo e a inicialização paralela do sistema, pra abrir
+mais rápido.
 
-O núcleo do projeto — leitura de valores monetários por OCR e detecção de QR
-Codes — passou por várias rodadas de ajuste: corrigi exceções na detecção de
-QR Codes, tornei a leitura de valores mais estável com validação robusta,
-priorização de formatos monetários e histórico de detecções, além de criar
-uma busca alternativa global para quando a detecção principal falhava.
-Corrigi também o feedback visual dos pagamentos e problemas recorrentes de
-áudio e de leitura de QR Code.
+A parte de leitura de valores por OCR e detecção de QR Code deu bastante
+trabalho. Corrigi exceções que travavam a detecção de QR Code, melhorei a
+validação dos valores lidos (priorizando formato monetário e usando o
+histórico de detecções pra não oscilar tanto) e criei uma busca alternativa
+para quando o OCR principal não achava nada. Corrigi também o feedback visual
+dos pagamentos e vários bugs de áudio e de leitura de QR Code que foram
+aparecendo com o uso.
 
-Em paralelo, reorganizei várias vezes a arquitetura do código: separei
-responsabilidades em módulos (câmera, OCR, voz, desenho, configuração,
-logging e utilitários), cheguei a reverter para uma versão monolítica mais
-simples quando a modularização atrapalhou mais do que ajudou, e por fim
-consolidei tudo em uma arquitetura modular definitiva dentro do pacote
-`payai`. Também limpei o código com Ruff, removi arquivos e testes que não
-eram mais usados, e escrevi testes automatizados para os pontos mais
-críticos (parser de valores, formatação de fala, detecção de QR Code e
-leitura de QR Codes Pix).
+A arquitetura mudou de ideia umas duas vezes: separei tudo em módulos
+(câmera, OCR, voz, desenho, configuração, logging, utilitários), depois
+voltei pra um arquivo único porque a modularização tava atrapalhando mais do
+que ajudando, e no fim organizei de novo, dessa vez dentro do pacote `payai`.
+Limpei o código com Ruff, tirei arquivos e testes que não usava mais e
+escrevi testes automatizados pros pontos que mais quebravam (parser de
+valores, formatação de fala, detecção de QR Code e leitura de QR Code Pix).
 
-A reta final, às vésperas do fechamento das notas na XV Mostra IFTec, foi
-dedicada a corrigir os três bugs mais críticos encontrados em uso real: o
-corte de áudio na síntese de voz durante a apresentação ao vivo (biblioteca
-desatualizada + cancelamento precoce da fala), a falha total na leitura de QR
-Codes pequenos, distantes ou desfocados (resolvida com um segundo detector e
-nitidez de imagem), e a leitura de QR Codes Pix, que agora anuncia por voz o
-valor cobrado e o nome do recebedor sem nunca revelar a chave Pix.
+Nas últimas semanas, já perto do fechamento das notas da XV Mostra IFTec,
+corrigi três bugs que apareceram em uso real: a voz cortando no meio da fala
+(Edge-TTS desatualizado e cancelamento de fala antes da hora), a leitura de QR
+Code falhando com código pequeno, longe da câmera ou desfocado (resolvido com
+um segundo detector e nitidez de imagem) e a leitura de QR Code Pix, que agora
+fala o valor cobrado e o nome de quem recebe, sem nunca revelar a chave Pix.
 
 Ass: Bernardo Girardi Frigeri
 
