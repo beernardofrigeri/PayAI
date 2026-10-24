@@ -377,12 +377,10 @@ def processar_valores(frame, estat):
             regioes_detectadas = 1 if resultado else 0
         if not resultado:
             remover_contorno_valor()
-            parar_fala_deteccao('VALOR')
             return
         valor, confianca, topo_esq, baixo_dir = resultado
         if confianca < OCR_CONFIANCA_MINIMA:
             remover_contorno_valor()
-            parar_fala_deteccao('VALOR')
             return
         with estado_lock:
             idioma = idioma_atual
